@@ -4,14 +4,20 @@ import 'dart:async';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'providers/link_provider.dart';
+import 'providers/theme_provider.dart';
 import 'screens/home_screen.dart';
 
 void main() {
   runApp(
-    ChangeNotifierProvider(
-      create: (context) => LinkProvider()
-        ..fetchCategories()
-        ..fetchLinks(),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(
+          create: (context) => LinkProvider()
+            ..fetchCategories()
+            ..fetchLinks(),
+        ),
+        ChangeNotifierProvider(create: (context) => ThemeProvider()),
+      ],
       child: const LinkSaverApp(),
     ),
   );
@@ -22,19 +28,35 @@ class LinkSaverApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Link Saver',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.blue,
-          primary: Colors.blue.shade800,
-          secondary: Colors.purple.shade700,
-        ),
-        useMaterial3: true,
-        textTheme: GoogleFonts.poppinsTextTheme(),
-      ),
-      home: const MainWrapper(),
+    return Consumer<ThemeProvider>(
+      builder: (context, themeProvider, child) {
+        return MaterialApp(
+          title: 'Fav Link Saver',
+          debugShowCheckedModeBanner: false,
+          themeMode: themeProvider.themeMode,
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: Colors.blue,
+              primary: Colors.blue.shade800,
+              secondary: Colors.purple.shade700,
+              brightness: Brightness.light,
+            ),
+            useMaterial3: true,
+            textTheme: GoogleFonts.poppinsTextTheme(),
+          ),
+          darkTheme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: Colors.blue,
+              primary: Colors.blue.shade300,
+              secondary: Colors.purple.shade300,
+              brightness: Brightness.dark,
+            ),
+            useMaterial3: true,
+            textTheme: GoogleFonts.poppinsTextTheme(ThemeData(brightness: Brightness.dark).textTheme),
+          ),
+          home: const MainWrapper(),
+        );
+      },
     );
   }
 }
@@ -164,11 +186,29 @@ class _SaveLinkDialogState extends State<SaveLinkDialog> {
 
   void _save(LinkProvider provider) {
     if (_controller.text.isNotEmpty && _urlController.text.isNotEmpty) {
-      provider.addLink(_controller.text, _urlController.text, categoryId: _selectedCategoryId);
-      Navigator.of(context).pop();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Link saved successfully!')),
-      );
+      try {
+        provider.addLink(_controller.text, _urlController.text, categoryId: _selectedCategoryId);
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Link saved successfully!')),
+        );
+      } on DuplicateLinkException catch (e) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 20),
+                const SizedBox(width: 10),
+                Text(e.message, style: GoogleFonts.poppins(fontSize: 13)),
+              ],
+            ),
+            backgroundColor: Colors.orange.shade800,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      }
     }
   }
 

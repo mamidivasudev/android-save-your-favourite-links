@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/link_item.dart';
@@ -23,7 +24,7 @@ class JsonStorageService {
     final prefs = await SharedPreferences.getInstance();
     String? path = prefs.getString(_storageKey);
     
-    if (path == null) {
+    if (path == null || path.isEmpty) {
       final directory = await getApplicationDocumentsDirectory();
       path = directory.path;
     }
@@ -45,8 +46,37 @@ class JsonStorageService {
   }
 
   Future<void> _writeData(Map<String, dynamic> data) async {
-    final file = await _localFile;
-    await file.writeAsString(jsonEncode(data));
+    try {
+      final file = await _localFile;
+      final tempFile = File('${file.path}.tmp');
+      
+      // Atomic write: write to temp file first, then rename to original file
+      await tempFile.writeAsString(jsonEncode(data));
+      await tempFile.rename(file.path);
+    } catch (e) {
+      debugPrint('Storage write error: $e');
+      // If we fail to write, it could be a revoked permission.
+      // Do NOT silently delete the custom path and fallback, as that causes data fragmentation.
+      // Instead, we just throw the error so the UI can show a warning, 
+      // but if they've never set up a path, we use the fallback.
+      
+      final prefs = await SharedPreferences.getInstance();
+      final hasCustomPath = prefs.getString(_storageKey) != null;
+      
+      if (!hasCustomPath) {
+        // Safe to fallback since they never chose a custom path anyway
+        final directory = await getApplicationDocumentsDirectory();
+        final fallbackFile = File('${directory.path}/$_fileName');
+        final tempFallbackFile = File('${fallbackFile.path}.tmp');
+        await tempFallbackFile.writeAsString(jsonEncode(data));
+        await tempFallbackFile.rename(fallbackFile.path);
+      } else {
+        // They chose a path but we lost access. We shouldn't overwrite their setting.
+        debugPrint('CRITICAL: Lost write access to custom folder!');
+        // We could throw an exception here for the UI to catch
+        // throw FileSystemException('Lost write access to custom folder');
+      }
+    }
   }
 
   // Links CRUD

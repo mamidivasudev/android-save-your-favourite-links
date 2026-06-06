@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
@@ -6,32 +8,64 @@ import '../models/link_item.dart';
 import '../models/category_item.dart';
 import '../services/json_storage_service.dart';
 import '../services/database_helper.dart';
+import '../services/google_drive_service.dart';
+
+class DuplicateLinkException implements Exception {
+  final String message;
+  DuplicateLinkException(this.message);
+}
 
 class LinkProvider with ChangeNotifier {
   List<LinkItem> _links = [];
   List<CategoryItem> _categories = [];
   final JsonStorageService _storageService = JsonStorageService();
   final DatabaseHelper _dbHelper = DatabaseHelper();
+  final GoogleDriveService _driveService = GoogleDriveService();
 
   List<LinkItem> get links => _links;
   List<CategoryItem> get categories => _categories;
+
+  Future<void> _autoSyncToDrive() async {
+    // Check if user is already signed in silently
+    final account = await _driveService.signInSilently();
+    if (account != null) {
+      final jsonContent = await getBackupJson();
+      // Backup in background without awaiting, so UI doesn't block
+      _driveService.backupToDrive(jsonContent).then((result) {
+        debugPrint("Auto-sync to Drive result: $result");
+      });
+    }
+  }
 
   LinkProvider() {
     _init();
   }
 
   Future<void> _init() async {
-    final path = await _storageService.getCustomPath();
-    if (path != null) {
-      await _migrateIfNeeded();
-      await fetchCategories();
-      await fetchLinks();
-    }
+    // Always initialize — uses app documents dir by default if no custom path set
+    await _migrateIfNeeded();
+    await fetchCategories();
+    await fetchLinks();
   }
 
-  Future<bool> hasStoragePath() async {
+  Future<bool> hasCompletedSetup() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('setup_completed') ?? false;
+  }
+
+  Future<void> setSetupCompleted(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('setup_completed', value);
+  }
+
+  Future<bool> hasCustomStoragePath() async {
     final path = await _storageService.getCustomPath();
-    return path != null;
+    return path != null && path.isNotEmpty;
+  }
+
+  Future<bool> isDriveSignedIn() async {
+    final account = await _driveService.signInSilently();
+    return account != null;
   }
 
   Future<void> setStoragePath(String path) async {
@@ -40,11 +74,54 @@ class LinkProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  Future<bool> isGoogleDriveSignedIn() => _driveService.isSignedIn();
+  Future<String?> getGoogleDriveEmail() => _driveService.getSignedInEmail();
+  Future<bool> getGoogleDriveAutoSyncEnabled() => _driveService.getAutoSyncEnabled();
+  Future<DateTime?> getGoogleDriveLastSync() => _driveService.getLastSync();
+  Future<void> setGoogleDriveAutoSyncEnabled(bool enabled) => _driveService.setAutoSyncEnabled(enabled);
+
+  Future<DriveSyncResult> signInToGoogleDrive() async {
+    final account = await _driveService.signIn();
+    if (account == null) return const DriveSyncResult(success: false, message: 'Sign in failed');
+    return DriveSyncResult(success: true, message: 'Signed in successfully', accountEmail: account.email);
+  }
+
+  Future<DriveSyncResult> signOutFromGoogleDrive() async {
+    await _driveService.signOut();
+    return const DriveSyncResult(success: true, message: 'Signed out successfully');
+  }
+
+  Future<DriveSyncResult> backupToGoogleDrive() async {
+    final jsonContent = await getBackupJson();
+    final data = jsonDecode(jsonContent) as Map<String, dynamic>;
+    final success = await _driveService.uploadBackup(data);
+    return DriveSyncResult(success: success, message: success ? 'Backup successful' : 'Backup failed');
+  }
+
+  Future<DriveSyncResult> restoreFromGoogleDrive() async {
+    final data = await _driveService.downloadBackup();
+    if (data == null) return const DriveSyncResult(success: false, message: 'Restore failed');
+    await restoreFromJson(jsonEncode(data));
+    return const DriveSyncResult(success: true, message: 'Restore successful');
+  }
+
+  Future<DriveSyncResult> syncWithGoogleDrive() async {
+    final remoteTime = await _driveService.getRemoteModifiedTime();
+    final lastSync = await _driveService.getLastSync();
+    if (remoteTime != null && (lastSync == null || remoteTime.isAfter(lastSync))) {
+       return restoreFromGoogleDrive();
+    } else {
+       return backupToGoogleDrive();
+    }
+  }
+
   Future<void> _migrateIfNeeded() async {
     String dbPath = p.join(await getDatabasesPath(), 'links_database.db');
+    final existingCategories = await _storageService.getCategories();
+    bool migratedCategories = false;
+
     if (await File(dbPath).exists()) {
       final existingLinks = await _storageService.getLinks();
-      final existingCategories = await _storageService.getCategories();
       
       if (existingLinks.isEmpty && existingCategories.isEmpty) {
         final dbLinks = await _dbHelper.getLinks();
@@ -52,20 +129,21 @@ class LinkProvider with ChangeNotifier {
         
         if (dbLinks.isNotEmpty || dbCategories.isNotEmpty) {
           await _storageService.saveData(links: dbLinks, categories: dbCategories);
+          migratedCategories = dbCategories.isNotEmpty;
         }
       }
-    } else {
-      final existingCategories = await _storageService.getCategories();
-      if (existingCategories.isEmpty) {
-        final defaultCategories = [
-          CategoryItem(id: 1, name: 'YouTube'),
-          CategoryItem(id: 2, name: 'Instagram'),
-          CategoryItem(id: 3, name: 'Locations'),
-          CategoryItem(id: 4, name: 'Google'),
-          CategoryItem(id: 5, name: 'Others'),
-        ];
-        await _storageService.saveCategories(defaultCategories);
-      }
+    }
+    
+    // Seed default categories if none exist (neither local JSON nor migrated DB had any)
+    if (existingCategories.isEmpty && !migratedCategories) {
+      final defaultCategories = [
+        CategoryItem(id: 1, name: 'YouTube'),
+        CategoryItem(id: 2, name: 'Instagram'),
+        CategoryItem(id: 3, name: 'Locations'),
+        CategoryItem(id: 4, name: 'Google'),
+        CategoryItem(id: 5, name: 'Others'),
+      ];
+      await _storageService.saveCategories(defaultCategories);
     }
   }
 
@@ -80,6 +158,12 @@ class LinkProvider with ChangeNotifier {
   }
 
   Future<void> addLink(String title, String url, {int? categoryId}) async {
+    // Check for duplicates
+    final cleanUrl = url.trim();
+    if (_links.any((l) => l.url.trim() == cleanUrl)) {
+      throw DuplicateLinkException('Link already saved!');
+    }
+
     final nextId = _links.isEmpty ? 1 : (_links.map((l) => l.id ?? 0).reduce((a, b) => a > b ? a : b) + 1);
     final newLink = LinkItem(
       id: nextId,
@@ -91,18 +175,21 @@ class LinkProvider with ChangeNotifier {
     _links.insert(0, newLink);
     await _storageService.saveLinks(_links);
     notifyListeners();
+    _autoSyncToDrive();
   }
 
   Future<void> removeLink(int id) async {
     _links.removeWhere((l) => l.id == id);
     await _storageService.saveLinks(_links);
     notifyListeners();
+    _autoSyncToDrive();
   }
 
   Future<void> removeMultipleLinks(List<int> ids) async {
     _links.removeWhere((l) => ids.contains(l.id));
     await _storageService.saveLinks(_links);
     notifyListeners();
+    _autoSyncToDrive();
   }
 
   Future<void> updateLink(LinkItem link) async {
@@ -111,6 +198,7 @@ class LinkProvider with ChangeNotifier {
       _links[index] = link;
       await _storageService.saveLinks(_links);
       notifyListeners();
+      _autoSyncToDrive();
     }
   }
 
@@ -121,6 +209,7 @@ class LinkProvider with ChangeNotifier {
     _categories.add(newCategory);
     await _storageService.saveCategories(_categories);
     notifyListeners();
+    _autoSyncToDrive();
   }
 
   Future<void> updateCategory(CategoryItem category) async {
@@ -129,6 +218,7 @@ class LinkProvider with ChangeNotifier {
       _categories[index] = category;
       await _storageService.saveCategories(_categories);
       notifyListeners();
+      _autoSyncToDrive();
     }
   }
 
@@ -143,6 +233,7 @@ class LinkProvider with ChangeNotifier {
     
     await _storageService.saveData(links: _links, categories: _categories);
     notifyListeners();
+    _autoSyncToDrive();
   }
 
   int? getAutoCategoryId(String url) {
@@ -158,5 +249,39 @@ class LinkProvider with ChangeNotifier {
       orElse: () => _categories.firstWhere((c) => c.name == 'Others', orElse: () => _categories.isNotEmpty ? _categories.first : CategoryItem(id: 0, name: 'Others')),
     );
     return category.id;
+  }
+
+  // ─── Google Drive Backup / Restore ──────────────────────────────────────────
+
+  /// Returns current data as a JSON string for Drive backup
+  Future<String> getBackupJson() async {
+    final data = {
+      'categories': _categories.map((c) => c.toMap()).toList(),
+      'links': _links.map((l) => l.toMap()).toList(),
+    };
+    return jsonEncode(data);
+  }
+
+  /// Restores data from a JSON string (from Drive) and saves locally
+  Future<void> restoreFromJson(String json) async {
+    try {
+      final data = jsonDecode(json) as Map<String, dynamic>;
+      if (data.containsKey('categories') && data.containsKey('links')) {
+        final categoriesData = data['categories'] as List;
+        final linksData = data['links'] as List;
+
+        _categories = categoriesData
+            .map((c) => CategoryItem.fromMap(c as Map<String, dynamic>))
+            .toList();
+        _links = linksData
+            .map((l) => LinkItem.fromMap(l as Map<String, dynamic>))
+            .toList();
+
+        await _storageService.saveData(links: _links, categories: _categories);
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('Restore from JSON error: $e');
+    }
   }
 }

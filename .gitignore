@@ -92,3 +92,11 @@ windows/flutter/ephemeral/
 # Environment files
 .env
 .env.*
+
+# Gradle cache
+.gradle/
+**/.gradle/
+
+# Generated plugin registrants
+android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+macos/Flutter/GeneratedPluginRegistrant.swift
