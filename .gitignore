@@ -1,0 +1,94 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ / Android Studio
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# VS Code
+.vscode/
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub/
+.pub-cache/
+build/
+coverage/
+
+# Flutter Docs
+**/doc/api/
+
+# Generated Flutter files
+**/ios/Flutter/.last_build_id
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android build outputs
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Android local configuration
+/android/local.properties
+
+# Keystore files (DO NOT COMMIT)
+*.jks
+*.keystore
+key.properties
+
+# Firebase (optional)
+# Uncomment if you don't want Firebase configs in Git
+# android/app/google-services.json
+# ios/Runner/GoogleService-Info.plist
+
+# Crashlytics
+com_crashlytics_export_strings.xml
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+fastlane/test_output
+
+# macOS
+macos/Flutter/ephemeral/
+
+# Linux
+linux/flutter/ephemeral/
+
+# Windows
+windows/flutter/ephemeral/
+
+# FVM (if using Flutter Version Manager)
+.fvm/
+
+# Dart generated
+*.g.dart
+*.freezed.dart
+
+# Environment files
+.env
+.env.*
