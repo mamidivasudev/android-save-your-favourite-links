@@ -100,3 +100,7 @@ windows/flutter/ephemeral/
 # Generated plugin registrants
 android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
 macos/Flutter/GeneratedPluginRegistrant.swift
+
+# Gradle
+android/.gradle/
+.gradle/

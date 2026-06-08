@@ -6,6 +6,7 @@ import '../providers/link_provider.dart';
 import '../providers/theme_provider.dart';
 import '../services/google_drive_service.dart';
 import '../services/data_service.dart';
+import '../services/auth_service.dart';
 
 class AppDrawer extends StatefulWidget {
   final VoidCallback? onCategoriesTap;
@@ -29,9 +30,14 @@ class _AppDrawerState extends State<AppDrawer> {
   @override
   void initState() {
     super.initState();
-    // Try silent sign-in on open
+    // Try to get cached account synchronously to prevent UI flash
+    _currentUser = _driveService.currentUserSync;
+    
+    // Try silent sign-in on open to verify/refresh token
     _driveService.signInSilently().then((account) {
-      if (mounted) setState(() => _currentUser = account);
+      if (mounted && account != _currentUser) {
+        setState(() => _currentUser = account);
+      }
     });
   }
 
@@ -39,11 +45,28 @@ class _AppDrawerState extends State<AppDrawer> {
 
   Future<void> _handleSignIn() async {
     setState(() => _isLoading = true);
-    final account = await _driveService.signIn();
-    if (mounted) setState(() {
-      _currentUser = account;
-      _isLoading = false;
-    });
+    try {
+      final account = await _driveService.signIn();
+      if (mounted) setState(() {
+        _currentUser = account;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        debugPrint('Sign in error: $e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Sign in failed: ${e.toString().split('\n').first}',
+              style: GoogleFonts.poppins(),
+            ),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _handleSignOut() async {
@@ -318,9 +341,12 @@ class _AppDrawerState extends State<AppDrawer> {
 
           // ── Menu Items ──────────────────────────────────────────────────────
           Expanded(
-            child: ListView(
-              padding: const EdgeInsets.only(top: 8, bottom: 24),
-              children: [
+            child: MediaQuery.removePadding(
+              context: context,
+              removeTop: true,
+              child: ListView(
+                padding: const EdgeInsets.only(top: 16, bottom: 24),
+                children: [
                 // Top Grid (2-columns)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -330,7 +356,7 @@ class _AppDrawerState extends State<AppDrawer> {
                     physics: const NeverScrollableScrollPhysics(),
                     mainAxisSpacing: 12,
                     crossAxisSpacing: 12,
-                    childAspectRatio: 1.25,
+                    childAspectRatio: 1.15,
                     children: [
                       // Theme
                       _buildDashboardCard(
@@ -380,7 +406,8 @@ class _AppDrawerState extends State<AppDrawer> {
                         subtitle: 'Save local file',
                         onTap: () {
                           Navigator.of(context).pop();
-                          DataService.exportData();
+                          final provider = Provider.of<LinkProvider>(context, listen: false);
+                          DataService.exportData(provider.categories, provider.links);
                         },
                       ),
                       // Import JSON
@@ -393,7 +420,7 @@ class _AppDrawerState extends State<AppDrawer> {
                         onTap: () async {
                           Navigator.of(context).pop();
                           final provider = Provider.of<LinkProvider>(context, listen: false);
-                          bool success = await DataService.importData();
+                          bool success = await DataService.importData(provider);
                           if (success && context.mounted) {
                             provider.fetchCategories();
                             provider.fetchLinks();
@@ -420,6 +447,71 @@ class _AppDrawerState extends State<AppDrawer> {
                 const SizedBox(height: 16),
                 
                 // Bottom List Tiles
+                Consumer<LinkProvider>(
+                  builder: (context, provider, child) {
+                    return Column(
+                      children: [
+                        SwitchListTile(
+                          title: Text(
+                            'Show Link Previews',
+                            style: GoogleFonts.poppins(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                          ),
+                          value: provider.showLinkPreviews,
+                          onChanged: (val) {
+                            provider.toggleLinkPreviews();
+                          },
+                          activeColor: Colors.blue.shade600,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 24),
+                          secondary: Icon(Icons.image_outlined, color: Colors.indigo.shade400),
+                        ),
+                        SwitchListTile(
+                          title: Text(
+                            'App Lock',
+                            style: GoogleFonts.poppins(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                          ),
+                          subtitle: Text(
+                            'Require fingerprint on start',
+                            style: GoogleFonts.poppins(fontSize: 11),
+                          ),
+                          value: provider.isAppLockEnabled,
+                          onChanged: (val) async {
+                            try {
+                              provider.setAuthenticating(true);
+                              final authenticated = await AuthService.authenticateForLink();
+                              provider.setAuthenticating(false);
+                              
+                              if (authenticated) {
+                                provider.toggleAppLock(val);
+                              } else {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Authentication failed or canceled. Please fully restart the app if this persists.')),
+                                  );
+                                }
+                              }
+                            } catch (e) {
+                              provider.setAuthenticating(false);
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Error: $e - Try stopping the app and running flutter run again.')),
+                                );
+                              }
+                            }
+                          },
+                          activeColor: Colors.blue.shade600,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 24),
+                          secondary: Icon(Icons.security, color: Colors.indigo.shade400),
+                        ),
+                      ],
+                    );
+                  },
+                ),
                 _buildBottomTile(
                   icon: Icons.folder_open_outlined,
                   iconColor: Colors.orange.shade600,
@@ -438,6 +530,7 @@ class _AppDrawerState extends State<AppDrawer> {
                     onTap: _handleSignOut,
                   ),
               ],
+            ),
             ),
           ),
         ],
@@ -459,7 +552,7 @@ class _AppDrawerState extends State<AppDrawer> {
       ),
       padding: EdgeInsets.only(
         top: MediaQuery.of(context).padding.top + 24,
-        bottom: 28,
+        bottom: 16,
         left: 20,
         right: 20,
       ),
@@ -653,7 +746,7 @@ class _AppDrawerState extends State<AppDrawer> {
                         fontWeight: FontWeight.w600,
                         fontSize: 13,
                       ),
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
                     if (subtitle != null) ...[

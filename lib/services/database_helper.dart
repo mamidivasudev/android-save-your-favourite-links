@@ -21,7 +21,7 @@ class DatabaseHelper {
     String path = join(await getDatabasesPath(), 'links_database.db');
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -39,12 +39,20 @@ class DatabaseHelper {
       CREATE TABLE links(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT,
-        url TEXT,
+        url TEXT UNIQUE,
         createdAt TEXT,
         categoryId INTEGER,
+        isPinned INTEGER DEFAULT 0,
+        isFavorite INTEGER DEFAULT 0,
+        isLocked INTEGER DEFAULT 0,
         FOREIGN KEY (categoryId) REFERENCES categories (id) ON DELETE SET NULL
       )
     ''');
+
+    // Index for fast date sorting
+    await db.execute(
+      'CREATE INDEX idx_links_createdAt ON links(createdAt DESC)'
+    );
 
     // Insert default categories
     final defaultCategories = ['YouTube', 'Instagram', 'Maps', 'Google', 'Other'];
@@ -70,12 +78,33 @@ class DatabaseHelper {
         await db.insert('categories', {'name': category});
       }
     }
+    
+    if (oldVersion < 3) {
+      // Add missing columns if upgrading from version 2
+      try {
+        await db.execute('ALTER TABLE links ADD COLUMN isPinned INTEGER DEFAULT 0');
+      } catch (_) {}
+      try {
+        await db.execute('ALTER TABLE links ADD COLUMN isFavorite INTEGER DEFAULT 0');
+      } catch (_) {}
+      try {
+        await db.execute('ALTER TABLE links ADD COLUMN isLocked INTEGER DEFAULT 0');
+      } catch (_) {}
+      // Add performance index
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_links_createdAt ON links(createdAt DESC)'
+      );
+    }
   }
 
   // Links Methods
   Future<int> insertLink(LinkItem link) async {
     Database db = await database;
-    return await db.insert('links', link.toMap());
+    return await db.insert(
+      'links', 
+      link.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
   }
 
   Future<List<LinkItem>> getLinks() async {

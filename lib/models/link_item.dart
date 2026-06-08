@@ -5,6 +5,9 @@ class LinkItem {
   final String url;
   final DateTime createdAt;
   final int? categoryId;
+  final bool isPinned;
+  final bool isFavorite;
+  final bool isLocked;
 
   LinkItem({
     this.id,
@@ -12,6 +15,9 @@ class LinkItem {
     required this.url,
     required this.createdAt,
     this.categoryId,
+    this.isPinned = false,
+    this.isFavorite = false,
+    this.isLocked = false,
   });
 
   Map<String, dynamic> toMap() {
@@ -21,6 +27,9 @@ class LinkItem {
       'url': url,
       'createdAt': createdAt.toIso8601String(),
       'categoryId': categoryId,
+      'isPinned': isPinned ? 1 : 0,
+      'isFavorite': isFavorite ? 1 : 0,
+      'isLocked': isLocked ? 1 : 0,
     };
   }
 
@@ -31,6 +40,9 @@ class LinkItem {
       url: map['url'],
       createdAt: DateTime.parse(map['createdAt']),
       categoryId: map['categoryId'],
+      isPinned: map['isPinned'] == 1 || map['isPinned'] == true,
+      isFavorite: map['isFavorite'] == 1 || map['isFavorite'] == true,
+      isLocked: map['isLocked'] == 1 || map['isLocked'] == true,
     );
   }
 
@@ -40,6 +52,9 @@ class LinkItem {
     String? url,
     DateTime? createdAt,
     int? categoryId,
+    bool? isPinned,
+    bool? isFavorite,
+    bool? isLocked,
   }) {
     return LinkItem(
       id: id ?? this.id,
@@ -47,6 +62,9 @@ class LinkItem {
       url: url ?? this.url,
       createdAt: createdAt ?? this.createdAt,
       categoryId: categoryId ?? this.categoryId,
+      isPinned: isPinned ?? this.isPinned,
+      isFavorite: isFavorite ?? this.isFavorite,
+      isLocked: isLocked ?? this.isLocked,
     );
   }
 }

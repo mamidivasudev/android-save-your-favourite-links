@@ -5,6 +5,9 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart';
+
 import '../config/google_drive_config.dart';
 
 enum DriveSyncAction { uploaded, downloaded, merged, noChanges }
@@ -37,9 +40,9 @@ class GoogleDriveService {
   static const String _lastSyncKey = 'google_drive_last_sync';
   static const String _autoSyncKey = 'google_drive_auto_sync';
 
-  final GoogleSignIn _googleSignIn = GoogleSignIn(
+  static final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: [drive.DriveApi.driveAppdataScope],
-    serverClientId: googleDriveWebClientId,
+    serverClientId: googleDriveWebClientId.isEmpty ? null : googleDriveWebClientId,
   );
 
   Future<GoogleSignInAccount?> signIn() => _googleSignIn.signIn();
@@ -52,8 +55,19 @@ class GoogleDriveService {
     return _googleSignIn.currentUser ?? await _googleSignIn.signInSilently();
   }
 
+  GoogleSignInAccount? get currentUserSync => _googleSignIn.currentUser;
+
   Future<GoogleSignInAccount?> signInSilently() async {
     return await _googleSignIn.signInSilently();
+  }
+
+  Future<bool> _hasInternet() async {
+    final result = await Connectivity().checkConnectivity();
+    if (result is List) {
+      return result.any((r) => r != ConnectivityResult.none);
+    } else {
+      return result != ConnectivityResult.none;
+    }
   }
 
   Future<BackupResult> backupToDrive(String jsonContent) async {
@@ -123,6 +137,11 @@ class GoogleDriveService {
   }
 
   Future<Map<String, dynamic>?> downloadBackup() async {
+    if (!await _hasInternet()) {
+      debugPrint('No internet connection — skipping Drive download');
+      return null;
+    }
+
     final api = await _getDriveApi();
     if (api == null) return null;
 
@@ -140,10 +159,22 @@ class GoogleDriveService {
   }
 
   Future<bool> uploadBackup(Map<String, dynamic> data) async {
+    if (!await _hasInternet()) {
+      debugPrint('No internet connection — skipping Drive upload');
+      return false;
+    }
+
     final api = await _getDriveApi();
     if (api == null) return false;
 
-    final jsonContent = jsonEncode(data);
+    final dataWithVersion = {
+      'version': 1,
+      'exportedAt': DateTime.now().toIso8601String(),
+      'categories': data['categories'] ?? [],
+      'links': data['links'] ?? [],
+    };
+
+    final jsonContent = jsonEncode(dataWithVersion);
     final bytes = utf8.encode(jsonContent);
     final media = drive.Media(
       Stream.value(bytes),

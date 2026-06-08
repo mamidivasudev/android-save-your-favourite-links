@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
+import 'package:flutter/services.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'providers/link_provider.dart';
 import 'providers/theme_provider.dart';
 import 'screens/home_screen.dart';
+import 'utils/url_validator.dart';
+import 'services/auth_service.dart';
 
 void main() {
   runApp(
@@ -68,13 +72,18 @@ class MainWrapper extends StatefulWidget {
   State<MainWrapper> createState() => _MainWrapperState();
 }
 
-class _MainWrapperState extends State<MainWrapper> {
+class _MainWrapperState extends State<MainWrapper> with WidgetsBindingObserver {
   late StreamSubscription _intentDataStreamSubscription;
   String? _sharedText;
+  bool _isAuthenticated = false;
+  bool _isCheckingAuth = true;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    
+    _checkInitialAuth();
 
     // For sharing or opening urls/text coming from outside the app while the app is in the memory
     _intentDataStreamSubscription = ReceiveSharingIntent.instance.getMediaStream().listen((List<SharedMediaFile> value) {
@@ -99,7 +108,7 @@ class _MainWrapperState extends State<MainWrapper> {
           setState(() {
             _sharedText = file.path;
             if (_sharedText != null) {
-              _showSaveDialog(_sharedText!);
+              _showSaveDialog(_sharedText!, closeAppOnSave: true);
             }
           });
         }
@@ -107,8 +116,41 @@ class _MainWrapperState extends State<MainWrapper> {
     });
   }
 
+  Future<void> _checkInitialAuth() async {
+    final prefs = await SharedPreferences.getInstance();
+    final isLocked = prefs.getBool('isAppLockEnabled') ?? false;
+    if (isLocked) {
+      // Actually we don't need to await here. The build method will show the lock screen
+      // because _isAuthenticated is false by default. We just let the UI render the lock screen.
+      setState(() {
+        _isCheckingAuth = false;
+      });
+    } else {
+      setState(() {
+        _isAuthenticated = true;
+        _isCheckingAuth = false;
+      });
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      final provider = Provider.of<LinkProvider>(context, listen: false);
+      if (provider.isAuthenticating) return; // Ignore resume if coming back from biometric prompt
+      
+      final isAppLockEnabled = provider.isAppLockEnabled;
+      if (isAppLockEnabled) {
+        setState(() {
+          _isAuthenticated = false;
+        });
+      }
+    }
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _intentDataStreamSubscription.cancel();
     super.dispose();
   }
@@ -119,14 +161,14 @@ class _MainWrapperState extends State<MainWrapper> {
     return match?.group(0) ?? text;
   }
 
-  void _showSaveDialog(String sharedContent) {
+  void _showSaveDialog(String sharedContent, {bool closeAppOnSave = false}) {
     final url = _extractUrl(sharedContent);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         showDialog(
           context: context,
           barrierDismissible: false,
-          builder: (context) => SaveLinkDialog(url: url),
+          builder: (context) => SaveLinkDialog(url: url, closeAppOnSave: closeAppOnSave),
         );
       }
     });
@@ -134,13 +176,80 @@ class _MainWrapperState extends State<MainWrapper> {
 
   @override
   Widget build(BuildContext context) {
+    final isAppLockEnabled = Provider.of<LinkProvider>(context).isAppLockEnabled;
+
+    if (_isCheckingAuth) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    if (isAppLockEnabled && !_isAuthenticated) {
+      return Scaffold(
+        body: Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.blue.shade900, Colors.purple.shade900],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.lock_outline, size: 80, color: Colors.white),
+              const SizedBox(height: 24),
+              Text('App Locked', style: GoogleFonts.poppins(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
+              const SizedBox(height: 48),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.fingerprint, size: 28),
+                label: const Text('Tap to Unlock', style: TextStyle(fontSize: 18)),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                  backgroundColor: Colors.white,
+                  foregroundColor: Colors.blue.shade900,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                ),
+                onPressed: () async {
+                  try {
+                    final provider = Provider.of<LinkProvider>(context, listen: false);
+                    provider.setAuthenticating(true);
+                    final authenticated = await AuthService.authenticateForLink();
+                    provider.setAuthenticating(false);
+                    
+                    if (authenticated) {
+                      setState(() {
+                        _isAuthenticated = true;
+                      });
+                    } else {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Authentication failed. Please stop the app and rebuild if this continues.')),
+                        );
+                      }
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Error: $e - Try fully stopping the app.')),
+                      );
+                    }
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return const HomeScreen();
   }
 }
 
 class SaveLinkDialog extends StatefulWidget {
   final String url;
-  const SaveLinkDialog({super.key, required this.url});
+  final bool closeAppOnSave;
+  const SaveLinkDialog({super.key, required this.url, this.closeAppOnSave = false});
 
   @override
   State<SaveLinkDialog> createState() => _SaveLinkDialogState();
@@ -151,6 +260,7 @@ class _SaveLinkDialogState extends State<SaveLinkDialog> {
   late TextEditingController _urlController;
   late FocusNode _focusNode;
   int? _selectedCategoryId;
+  String? _urlError;
 
   @override
   void initState() {
@@ -186,12 +296,27 @@ class _SaveLinkDialogState extends State<SaveLinkDialog> {
 
   void _save(LinkProvider provider) {
     if (_controller.text.isNotEmpty && _urlController.text.isNotEmpty) {
+      final normalized = UrlValidator.normalize(_urlController.text);
+      if (normalized == null) {
+        setState(() {
+          _urlError = UrlValidator.validationError();
+        });
+        return;
+      }
+
+      setState(() {
+        _urlError = null;
+      });
+
       try {
-        provider.addLink(_controller.text, _urlController.text, categoryId: _selectedCategoryId);
+        provider.addLink(_controller.text, normalized, categoryId: _selectedCategoryId);
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Link saved successfully!')),
         );
+        if (widget.closeAppOnSave) {
+          Future.delayed(const Duration(milliseconds: 500), () => SystemNavigator.pop());
+        }
       } on DuplicateLinkException catch (e) {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -252,7 +377,7 @@ class _SaveLinkDialogState extends State<SaveLinkDialog> {
                         hintText: 'e.g. My Favorite Song',
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                         filled: true,
-                        fillColor: Colors.grey.shade100,
+                        fillColor: Theme.of(context).brightness == Brightness.dark ? Colors.grey.shade800 : Colors.grey.shade100,
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -262,39 +387,57 @@ class _SaveLinkDialogState extends State<SaveLinkDialog> {
                       onChanged: (val) {
                         setDialogState(() {
                           _selectedCategoryId = provider.getAutoCategoryId(val);
+                          _urlError = null; // clear error when typing
                         });
                       },
                       onSubmitted: (_) => _save(provider),
                       decoration: InputDecoration(
                         labelText: 'URL',
+                        errorText: _urlError,
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                         filled: true,
-                        fillColor: Colors.grey.shade100,
+                        fillColor: Theme.of(context).brightness == Brightness.dark ? Colors.grey.shade800 : Colors.grey.shade100,
                       ),
                     ),
                     const SizedBox(height: 20),
                     Text('Select Category:', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 14)),
                     const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 0,
-                      children: provider.categories.map((cat) {
-                        final isSelected = _selectedCategoryId == cat.id;
-                        return ChoiceChip(
-                          label: Text(cat.name),
-                          selected: isSelected,
-                          onSelected: (selected) {
-                            setDialogState(() {
-                              _selectedCategoryId = selected ? cat.id : null;
-                            });
-                          },
-                          selectedColor: Colors.blue.shade800,
-                          labelStyle: TextStyle(
-                            color: isSelected ? Colors.white : Colors.black,
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                          ),
-                        );
-                      }).toList(),
+                    SizedBox(
+                      width: double.maxFinite,
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: provider.categories.map((cat) {
+                          final isSelected = _selectedCategoryId == cat.id;
+                          return SizedBox(
+                            width: 76,
+                            child: ChoiceChip(
+                              label: Container(
+                                alignment: Alignment.center,
+                                child: Text(
+                                  cat.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 11),
+                                ),
+                              ),
+                              padding: EdgeInsets.zero,
+                              labelPadding: EdgeInsets.zero,
+                              selected: isSelected,
+                              onSelected: (selected) {
+                                setDialogState(() {
+                                  _selectedCategoryId = selected ? cat.id : null;
+                                });
+                              },
+                              selectedColor: Colors.blue.shade800,
+                              labelStyle: TextStyle(
+                                color: isSelected ? Colors.white : (Theme.of(context).brightness == Brightness.dark ? Colors.white : Colors.black),
+                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
                     ),
                   ],
                 ),

@@ -12,6 +12,9 @@ import '../models/link_item.dart';
 import '../models/category_item.dart';
 import '../services/google_drive_service.dart';
 import '../screens/drawer_menu.dart';
+import '../screens/google_drive_dialog.dart';
+import '../services/auth_service.dart';
+import '../utils/url_validator.dart';
 
 enum SortOption { newest, oldest, aToZ, zToA }
 
@@ -43,7 +46,56 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    // Data loads automatically using app documents folder by default
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final provider = Provider.of<LinkProvider>(context, listen: false);
+      if (!await provider.hasCompletedSetup()) {
+        if (mounted) _showSetupDialog();
+      }
+    });
+  }
+
+  void _showSetupDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text('Setup Storage', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Where would you like to save your links?', style: GoogleFonts.poppins(fontSize: 14)),
+            const SizedBox(height: 16),
+            Text('• Local Folder: Pick a visible folder on your phone.\n• Google Drive: Sync across devices.', style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey.shade700)),
+          ],
+        ),
+        actionsPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await Provider.of<LinkProvider>(context, listen: false).setSetupCompleted(true);
+              showDialog(context: context, builder: (_) => const GoogleDriveDialog());
+            },
+            child: Text('Google Drive', style: GoogleFonts.poppins(color: Colors.blue.shade600)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await Provider.of<LinkProvider>(context, listen: false).setSetupCompleted(true);
+              _showFolderPicker();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue.shade700,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: Text('Pick Folder', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _showFolderPicker() async {
@@ -54,7 +106,7 @@ class _HomeScreenState extends State<HomeScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text('Change Storage Folder', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
         content: Text(
-          'Choose a custom folder to save your links data. If you skip, data is saved in the default app folder.',
+          'Choose a custom folder to save your links data.',
           style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey.shade700),
         ),
         actions: [
@@ -330,11 +382,21 @@ class _HomeScreenState extends State<HomeScreen> {
                             });
                           },
                         )
-                      : Text(
-                          'My Saved Links 📌',
-                          style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 18),
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'My Links 📌',
+                              style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 18),
+                            ),
+                            Text(
+                              '  Save it now, find it later',
+                              style: GoogleFonts.poppins(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                            ),
+                          ],
                         ),
               centerTitle: false,
+              titleSpacing: 0,
               elevation: 0,
               backgroundColor: Colors.transparent,
               iconTheme: const IconThemeData(color: Colors.white),
@@ -372,11 +434,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     onPressed: _deleteSelected,
                   ),
                 ] else ...[
-                  IconButton(
-                    padding: EdgeInsets.zero,
-                    visualDensity: VisualDensity.compact,
-                    icon: Icon(_isSearching ? Icons.close : Icons.search, color: Colors.white),
-                    onPressed: () {
+                  InkWell(
+                    onTap: () {
                       setState(() {
                         if (_isSearching) {
                           _isSearching = false;
@@ -387,10 +446,21 @@ class _HomeScreenState extends State<HomeScreen> {
                         }
                       });
                     },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(_isSearching ? Icons.close : Icons.search, color: Colors.white, size: 20),
+                          Text(_isSearching ? 'Close' : 'Search', style: GoogleFonts.poppins(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
                   ),
                   PopupMenuButton<SortOption>(
                     padding: EdgeInsets.zero,
-                    icon: const Icon(Icons.sort, color: Colors.white),
+                    tooltip: 'Sort Options',
+                    offset: const Offset(0, 45),
                     onSelected: (SortOption result) {
                       setState(() {
                         _currentSort = result;
@@ -414,22 +484,38 @@ class _HomeScreenState extends State<HomeScreen> {
                         child: Text('Alphabetical (Z-A)'),
                       ),
                     ],
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.sort, color: Colors.white, size: 20),
+                          Text('Sort', style: GoogleFonts.poppins(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
                   ),
-                  IconButton(
-                    padding: EdgeInsets.zero,
-                    visualDensity: VisualDensity.compact,
-                    icon: _isSyncing
-                        ? const SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 2.5,
-                            ),
-                          )
-                        : const Icon(Icons.cloud_sync, color: Colors.white),
-                    tooltip: 'Sync to Google Drive',
-                    onPressed: _isSyncing ? null : _syncToGoogleDrive,
+                  InkWell(
+                    onTap: _isSyncing ? null : _syncToGoogleDrive,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          _isSyncing
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2.0,
+                                  ),
+                                )
+                              : const Icon(Icons.cloud_sync, color: Colors.white, size: 20),
+                          Text('Sync', style: GoogleFonts.poppins(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
                   ),
                 ]
               ],
@@ -437,7 +523,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 isScrollable: true,
                 tabAlignment: TabAlignment.start,
                 padding: const EdgeInsets.only(left: 8),
-                tabs: categories.map((category) => Tab(text: category.name)).toList(),
+                tabs: categories.map((category) {
+                  final count = category.id == -1 
+                      ? provider.links.length 
+                      : provider.links.where((l) => l.categoryId == category.id).length;
+                  return Tab(text: '${category.name} ($count)');
+                }).toList(),
                 labelStyle: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 13),
                 unselectedLabelStyle: GoogleFonts.poppins(fontWeight: FontWeight.normal, fontSize: 13),
                 indicatorColor: Colors.white,
@@ -469,6 +560,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
                       // Apply sorting
                       filteredLinks.sort((a, b) {
+                        if (a.isPinned && !b.isPinned) return -1;
+                        if (!a.isPinned && b.isPinned) return 1;
+
                         switch (_currentSort) {
                           case SortOption.newest:
                             return b.createdAt.compareTo(a.createdAt);
@@ -504,10 +598,18 @@ class _HomeScreenState extends State<HomeScreen> {
                               if (_isSelectionMode) {
                                 _toggleSelection(link.id!);
                               } else {
+                                if (link.isLocked) {
+                                  final provider = Provider.of<LinkProvider>(context, listen: false);
+                                  provider.setAuthenticating(true);
+                                  final authenticated = await AuthService.authenticateForLink();
+                                  provider.setAuthenticating(false);
+                                  if (!authenticated) return;
+                                }
+
                                 final Uri url = Uri.parse(link.url);
                                 if (!await launchUrl(
                                   url,
-                                  mode: LaunchMode.inAppWebView
+                                  mode: LaunchMode.externalApplication
                                 )) {
                                   if (context.mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
@@ -624,6 +726,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final TextEditingController urlController = TextEditingController();
     final FocusNode urlFocusNode = FocusNode();
     int? selectedCategoryId;
+    String? urlError;
     
     showDialog(
       context: context,
@@ -634,36 +737,48 @@ class _HomeScreenState extends State<HomeScreen> {
             // Initial auto-categorization
             selectedCategoryId ??= provider.getAutoCategoryId(urlController.text);
 
-            void save() {
-              if (titleController.text.isNotEmpty && urlController.text.isNotEmpty) {
-                try {
-                  provider.addLink(titleController.text, urlController.text, categoryId: selectedCategoryId);
-                  Navigator.of(context).pop();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Link saved successfully!')),
-                  );
-                } on DuplicateLinkException catch (e) {
-                  Navigator.of(context).pop();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Row(
-                        children: [
-                          const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 20),
-                          const SizedBox(width: 10),
-                          Text(e.message, style: GoogleFonts.poppins(fontSize: 13)),
-                        ],
-                      ),
-                      backgroundColor: Colors.orange.shade800,
-                      behavior: SnackBarBehavior.floating,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                  );
-                }
-              }
-            }
-
             return StatefulBuilder(
               builder: (context, setDialogState) {
+                Future<void> save() async {
+                  if (titleController.text.isNotEmpty && urlController.text.isNotEmpty) {
+                    final normalized = UrlValidator.normalize(urlController.text);
+                    if (normalized == null) {
+                      setDialogState(() {
+                        urlError = UrlValidator.validationError();
+                      });
+                      return;
+                    }
+
+                    setDialogState(() {
+                      urlError = null;
+                    });
+
+                    try {
+                      await provider.addLink(titleController.text, normalized, categoryId: selectedCategoryId);
+                      Navigator.of(context).pop();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Link saved successfully!')),
+                      );
+                    } on DuplicateLinkException catch (e) {
+                      Navigator.of(context).pop();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Row(
+                            children: [
+                              const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 20),
+                              const SizedBox(width: 10),
+                              Text(e.message, style: GoogleFonts.poppins(fontSize: 13)),
+                            ],
+                          ),
+                          backgroundColor: Colors.orange.shade800,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      );
+                    }
+                  }
+                }
+
                 return AlertDialog(
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                   title: Row(
@@ -691,7 +806,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             hintText: 'e.g. My Favorite Song',
                             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                             filled: true,
-                            fillColor: Colors.grey.shade100,
+                            fillColor: Theme.of(context).brightness == Brightness.dark ? Colors.grey.shade800 : Colors.grey.shade100,
                           ),
                         ),
                         const SizedBox(height: 16),
@@ -702,39 +817,75 @@ class _HomeScreenState extends State<HomeScreen> {
                           onChanged: (val) {
                             setDialogState(() {
                               selectedCategoryId = provider.getAutoCategoryId(val);
+                              urlError = null; // clear error when typing
                             });
                           },
                           decoration: InputDecoration(
                             labelText: 'URL',
                             hintText: 'e.g. https://example.com',
+                            errorText: urlError,
                             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                             filled: true,
-                            fillColor: Colors.grey.shade100,
+                            fillColor: Theme.of(context).brightness == Brightness.dark ? Colors.grey.shade800 : Colors.grey.shade100,
                           ),
                         ),
                         const SizedBox(height: 20),
                         Text('Select Category:', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 14)),
                         const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 0,
-                          children: provider.categories.map((cat) {
-                            final isSelected = selectedCategoryId == cat.id;
-                            return ChoiceChip(
-                              label: Text(cat.name),
-                              selected: isSelected,
-                              onSelected: (selected) {
-                                setDialogState(() {
-                                  selectedCategoryId = selected ? cat.id : null;
-                                });
-                              },
-                              selectedColor: Colors.blue.shade800,
-                              labelStyle: TextStyle(
-                                color: isSelected ? Colors.white : Colors.black,
-                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                              ),
-                            );
-                          }).toList(),
+                        SizedBox(
+                          width: double.maxFinite,
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: provider.categories.map((cat) {
+                              final isSelected = selectedCategoryId == cat.id;
+                              return GestureDetector(
+                                onTap: () {
+                                  setDialogState(() {
+                                    selectedCategoryId = isSelected ? null : cat.id;
+                                  });
+                                },
+                                child: Container(
+                                  width: 76,
+                                  padding: const EdgeInsets.symmetric(vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: isSelected ? Colors.blue.shade800 : (Theme.of(context).brightness == Brightness.dark ? Colors.grey.shade800 : Colors.grey.shade100),
+                                    borderRadius: BorderRadius.circular(20),
+                                    boxShadow: isSelected
+                                        ? [
+                                            BoxShadow(
+                                              color: Colors.blue.shade800.withValues(alpha: 0.4),
+                                              blurRadius: 8,
+                                              offset: const Offset(0, 2),
+                                            )
+                                          ]
+                                        : null,
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      if (isSelected) ...[
+                                        const Icon(Icons.check, size: 12, color: Colors.white),
+                                        const SizedBox(width: 4),
+                                      ],
+                                      Flexible(
+                                        child: Text(
+                                          cat.name,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: isSelected ? Colors.white : (Theme.of(context).brightness == Brightness.dark ? Colors.white : Colors.black),
+                                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
                         ),
                       ],
                     ),
@@ -765,88 +916,235 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showManageCategoriesDialog(BuildContext context) {
+    Set<int> selectedIds = {};
+    bool isSelectionMode = false;
+
     showDialog(
       context: context,
       builder: (context) {
         return Consumer<LinkProvider>(
           builder: (context, provider, child) {
-            return AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-              title: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Manage Categories',
-                      style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.add_circle, color: Colors.blue),
-                    onPressed: () => _showAddCategoryDialog(context),
-                  ),
-                ],
-              ),
-              content: SizedBox(
-                width: double.maxFinite,
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: provider.categories.length,
-                  itemBuilder: (context, index) {
-                    final category = provider.categories[index];
-                    return ListTile(
-                      title: Text(category.name),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
+            return StatefulBuilder(
+              builder: (context, setState) {
+                final allSelected = selectedIds.length == provider.categories.length && provider.categories.isNotEmpty;
+
+                return AlertDialog(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                  title: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Manage Categories',
+                        style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          IconButton(
-                            icon: const Icon(Icons.edit, size: 20),
-                            onPressed: () => _showEditCategoryDialog(context, category),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.delete, size: 20, color: Colors.red),
-                            onPressed: () async {
-                              final confirmed = await showDialog<bool>(
-                                context: context,
-                                builder: (context) => AlertDialog(
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                                  title: Text('Delete Category', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-                                  content: Text('Are you sure you want to delete "${category.name}"? This will not delete the links in this category.', style: GoogleFonts.poppins()),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () => Navigator.pop(context, false),
-                                      child: const Text('Cancel'),
-                                    ),
-                                    ElevatedButton(
-                                      onPressed: () => Navigator.pop(context, true),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.redAccent,
-                                        foregroundColor: Colors.white,
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                      ),
-                                      child: const Text('Delete'),
-                                    ),
-                                  ],
+                          if (!isSelectionMode) ...[
+                            TextButton.icon(
+                              icon: const Icon(Icons.add_circle, size: 18),
+                              label: Text('Add New', style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600)),
+                              style: TextButton.styleFrom(
+                                padding: EdgeInsets.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                alignment: Alignment.centerLeft,
+                              ),
+                              onPressed: () => _showAddCategoryDialog(context),
+                            ),
+                            if (provider.categories.isNotEmpty)
+                              TextButton.icon(
+                                icon: const Icon(Icons.checklist, size: 18, color: Colors.blue),
+                                label: Text('Select', style: GoogleFonts.poppins(fontSize: 13, color: Colors.blue)),
+                                style: TextButton.styleFrom(
+                                  padding: EdgeInsets.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                 ),
-                              );
-                              if (confirmed == true) {
-                                provider.removeCategory(category.id!);
-                              }
-                            },
-                          ),
+                                onPressed: () {
+                                  setState(() {
+                                    isSelectionMode = true;
+                                  });
+                                },
+                              ),
+                          ] else ...[
+                            TextButton.icon(
+                              icon: Icon(allSelected ? Icons.deselect : Icons.select_all, size: 18, color: Colors.blue.shade700),
+                              label: Text(allSelected ? 'Deselect All' : 'Select All', style: GoogleFonts.poppins(fontSize: 12, color: Colors.blue.shade700)),
+                              style: TextButton.styleFrom(
+                                padding: EdgeInsets.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  if (allSelected) {
+                                    selectedIds.clear();
+                                  } else {
+                                    selectedIds = provider.categories.map((c) => c.id!).toSet();
+                                  }
+                                });
+                              },
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                setState(() {
+                                  isSelectionMode = false;
+                                  selectedIds.clear();
+                                });
+                              },
+                              style: TextButton.styleFrom(
+                                padding: EdgeInsets.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              child: Text('Cancel', style: GoogleFonts.poppins(fontSize: 12)),
+                            ),
+                          ],
                         ],
                       ),
-                    );
-                  },
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Close'),
-                ),
-              ],
+                    ],
+                  ),
+                  content: SizedBox(
+                    width: double.maxFinite,
+                    child: provider.categories.isEmpty
+                        ? Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: Text('No categories available.', style: GoogleFonts.poppins(), textAlign: TextAlign.center),
+                          )
+                        : Scrollbar(
+                            thumbVisibility: true,
+                            child: ListView.builder(
+                              shrinkWrap: true,
+                              itemCount: provider.categories.length,
+                              itemBuilder: (context, index) {
+                                final category = provider.categories[index];
+                                final isSelected = selectedIds.contains(category.id);
+                                
+                                return ListTile(
+                                  onTap: () {
+                                    if (isSelectionMode) {
+                                      setState(() {
+                                        if (isSelected) {
+                                          selectedIds.remove(category.id);
+                                        } else {
+                                          selectedIds.add(category.id!);
+                                        }
+                                      });
+                                    }
+                                  },
+                                  onLongPress: () {
+                                    if (!isSelectionMode) {
+                                      setState(() {
+                                        isSelectionMode = true;
+                                        selectedIds.add(category.id!);
+                                      });
+                                    }
+                                  },
+                                  leading: isSelectionMode
+                                      ? Checkbox(
+                                          value: isSelected,
+                                          onChanged: (val) {
+                                            setState(() {
+                                              if (val == true) {
+                                                selectedIds.add(category.id!);
+                                              } else {
+                                                selectedIds.remove(category.id);
+                                              }
+                                            });
+                                          },
+                                        )
+                                      : null,
+                                  title: Text('${category.name} (${provider.links.where((l) => l.categoryId == category.id).length})'),
+                                  trailing: isSelectionMode
+                                      ? null
+                                      : Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            IconButton(
+                                              icon: const Icon(Icons.edit, size: 20),
+                                              onPressed: () => _showEditCategoryDialog(context, category),
+                                            ),
+                                            IconButton(
+                                              icon: const Icon(Icons.delete, size: 20, color: Colors.red),
+                                              onPressed: () async {
+                                                final confirmed = await showDialog<bool>(
+                                                  context: context,
+                                                  builder: (context) => AlertDialog(
+                                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                                    title: Text('Delete Category', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+                                                    content: Text('Are you sure you want to delete "${category.name}"? All links saved in this category will also be permanently deleted.', style: GoogleFonts.poppins()),
+                                                    actions: [
+                                                      TextButton(
+                                                        onPressed: () => Navigator.pop(context, false),
+                                                        child: const Text('Cancel'),
+                                                      ),
+                                                      ElevatedButton(
+                                                        onPressed: () => Navigator.pop(context, true),
+                                                        style: ElevatedButton.styleFrom(
+                                                          backgroundColor: Colors.redAccent,
+                                                          foregroundColor: Colors.white,
+                                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                                        ),
+                                                        child: const Text('Delete'),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                );
+                                                if (confirmed == true) {
+                                                  provider.removeCategory(category.id!);
+                                                }
+                                              },
+                                            ),
+                                          ],
+                                        ),
+                                );
+                              },
+                            ),
+                          ),
+                  ),
+                  actions: [
+                    if (isSelectionMode && selectedIds.isNotEmpty)
+                      TextButton.icon(
+                        icon: const Icon(Icons.delete_sweep, color: Colors.red),
+                        label: Text('Delete (${selectedIds.length})', style: GoogleFonts.poppins(color: Colors.red, fontWeight: FontWeight.bold)),
+                        onPressed: () async {
+                          final confirmed = await showDialog<bool>(
+                            context: context,
+                            builder: (context) => AlertDialog(
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                              title: Text('Delete Categories', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+                              content: Text('Are you sure you want to delete ${selectedIds.length} categories? All links saved in these categories will also be permanently deleted.', style: GoogleFonts.poppins()),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(context, false),
+                                  child: const Text('Cancel'),
+                                ),
+                                ElevatedButton(
+                                  onPressed: () => Navigator.pop(context, true),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.redAccent,
+                                    foregroundColor: Colors.white,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  ),
+                                  child: const Text('Delete'),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (confirmed == true) {
+                            await provider.removeMultipleCategories(selectedIds.toList());
+                            setState(() {
+                              isSelectionMode = false;
+                              selectedIds.clear();
+                            });
+                          }
+                        },
+                      ),
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Close'),
+                    ),
+                  ],
+                );
+              },
             );
           },
         );
@@ -927,175 +1225,309 @@ class LinkCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final showPreview = Provider.of<LinkProvider>(context).showLinkPreviews;
+
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
+      margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
         color: isSelected ? Colors.blue.withValues(alpha: 0.1) : Theme.of(context).cardColor,
-        border: isSelected ? Border.all(color: Colors.blue.shade300, width: 2) : null,
+        border: isSelected ? Border.all(color: Colors.blue.shade300, width: 2) : Border.all(color: isDark ? Colors.grey.shade800 : Colors.grey.shade200),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
+          if (!isDark)
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
         ],
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: onTap,
-            onLongPress: onLongPress,
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Row(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          onLongPress: onLongPress,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: showPreview ? _buildPreviewLayout(context, isDark) : _buildCompactLayout(context, isDark),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCompactLayout(BuildContext context, bool isDark) {
+    return Row(
+      children: [
+        if (isSelectionMode)
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Icon(
+              isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
+              color: isSelected ? Colors.blue.shade800 : Colors.grey,
+            ),
+          ),
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: isDark ? Colors.grey.shade800 : Colors.blue.shade50,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: _getIconWidgetForUrl(link.url),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  if (isSelectionMode)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 16),
-                      child: Icon(
-                        isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
-                        color: isSelected ? Colors.blue.shade800 : Colors.grey,
-                      ),
-                    ),
                   Expanded(
-                    child: IgnorePointer( // Ignore pointer so LinkCard onTap triggers instead of AnyLinkPreview
-                      child: AnyLinkPreview(
-                        link: link.url,
-                        displayDirection: UIDirection.uiDirectionHorizontal,
-                        showMultimedia: true,
-                        bodyMaxLines: 3,
-                        bodyTextOverflow: TextOverflow.ellipsis,
-                        titleStyle: GoogleFonts.poppins(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                          color: Theme.of(context).textTheme.bodyLarge?.color,
-                        ),
-                        bodyStyle: GoogleFonts.poppins(
-                          fontSize: 11,
-                          color: Colors.grey.shade600,
-                        ),
-                        errorBody: link.url,
-                        errorTitle: link.title,
-                        errorWidget: Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: Colors.blue.shade50,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: _getIconWidgetForUrl(link.url),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    link.title,
-                                    style: GoogleFonts.poppins(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 14,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    link.url,
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 11,
-                                      color: Colors.grey.shade600,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                        cache: const Duration(days: 7),
-                        backgroundColor: Colors.transparent,
-                        borderRadius: 0,
-                        removeElevation: true,
+                    child: Text(
+                      link.title,
+                      style: GoogleFonts.poppins(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                        color: Theme.of(context).textTheme.bodyLarge?.color,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  if (!isSelectionMode)
-                    PopupMenuButton<String>(
-                      icon: const Icon(Icons.more_vert, color: Colors.grey),
-                      onSelected: (value) {
-                        switch (value) {
-                          case 'copy':
-                            Clipboard.setData(ClipboardData(text: link.url));
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Link copied to clipboard!')),
-                            );
-                            break;
-                          case 'share':
-                            Share.share('${link.title}\n${link.url}');
-                            break;
-                          case 'edit':
-                            _showEditDialog(context);
-                            break;
-                          case 'delete':
-                            _showDeleteConfirmationDialog(context);
-                            break;
-                        }
-                      },
-                      itemBuilder: (context) => [
-                        const PopupMenuItem(
-                          value: 'copy',
-                          child: Row(
-                            children: [
-                              Icon(Icons.copy, size: 20),
-                              SizedBox(width: 8),
-                              Text('Copy'),
-                            ],
-                          ),
-                        ),
-                        const PopupMenuItem(
-                          value: 'share',
-                          child: Row(
-                            children: [
-                              Icon(Icons.share, size: 20),
-                              SizedBox(width: 8),
-                              Text('Share'),
-                            ],
-                          ),
-                        ),
-                        const PopupMenuItem(
-                          value: 'edit',
-                          child: Row(
-                            children: [
-                              Icon(Icons.edit, size: 20),
-                              SizedBox(width: 8),
-                              Text('Edit'),
-                            ],
-                          ),
-                        ),
-                        const PopupMenuItem(
-                          value: 'delete',
-                          child: Row(
-                            children: [
-                              Icon(Icons.delete, size: 20, color: Colors.red),
-                              SizedBox(width: 8),
-                              Text('Delete', style: TextStyle(color: Colors.red)),
-                            ],
+                  if (link.isPinned) const Icon(Icons.push_pin, size: 14, color: Colors.blue),
+                  if (link.isPinned && link.isFavorite) const SizedBox(width: 4),
+                  if (link.isLocked) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.lock, size: 14, color: Colors.red)),
+                  if (link.isFavorite) const Icon(Icons.favorite, size: 16, color: Colors.pink),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                link.url,
+                style: GoogleFonts.poppins(
+                  fontSize: 12,
+                  color: Colors.grey.shade500,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+        if (!isSelectionMode)
+          IconButton(
+            icon: const Icon(Icons.more_vert, color: Colors.grey),
+            onPressed: () => _showMenuBottomSheet(context),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildPreviewLayout(BuildContext context, bool isDark) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildCompactLayout(context, isDark),
+        const SizedBox(height: 12),
+        Container(
+          height: 180,
+          width: double.infinity,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: isDark ? Colors.grey.shade800 : Colors.grey.shade300),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: IgnorePointer(
+              child: AnyLinkPreview(
+                link: link.url,
+                displayDirection: UIDirection.uiDirectionVertical,
+                showMultimedia: true,
+                bodyMaxLines: 3,
+                bodyTextOverflow: TextOverflow.ellipsis,
+                titleStyle: GoogleFonts.poppins(
+                  color: isDark ? Colors.white : Colors.black,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+                bodyStyle: GoogleFonts.poppins(
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                  fontSize: 12,
+                ),
+                errorWidget: Container(
+                  color: isDark ? Colors.grey.shade800 : Colors.grey.shade100,
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.link, size: 40, color: isDark ? Colors.grey.shade600 : Colors.grey.shade400),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Preview not available',
+                          style: GoogleFonts.poppins(
+                            color: isDark ? Colors.grey.shade400 : Colors.grey.shade500,
+                            fontSize: 12,
                           ),
                         ),
                       ],
                     ),
-                ],
+                  ),
+                ),
+                cache: const Duration(days: 7),
+                backgroundColor: isDark ? Colors.grey.shade900 : Colors.white,
+                borderRadius: 12,
               ),
             ),
           ),
         ),
+      ],
+    );
+  }
+
+  void _showMenuBottomSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+
+                _buildMenuItem(
+                  context,
+                  icon: Icons.edit,
+                  label: 'Edit',
+                  iconColor: Colors.blue.shade700,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showEditDialog(context);
+                  },
+                ),
+                _buildMenuItem(
+                  context,
+                  icon: Icons.push_pin,
+                  label: link.isPinned ? 'Unpin' : 'Pin',
+                  iconColor: Colors.blue.shade700,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    Provider.of<LinkProvider>(context, listen: false).togglePin(link.id!);
+                  },
+                ),
+                _buildMenuItem(
+                  context,
+                  icon: link.isLocked ? Icons.lock_open : Icons.lock,
+                  label: link.isLocked ? 'Unlock' : 'Lock',
+                  iconColor: link.isLocked ? Colors.green : Colors.red,
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    if (link.isLocked) {
+                      final provider = Provider.of<LinkProvider>(context, listen: false);
+                      provider.setAuthenticating(true);
+                      final authenticated = await AuthService.authenticateForLink();
+                      provider.setAuthenticating(false);
+                      if (!authenticated) return;
+                    }
+                    Provider.of<LinkProvider>(context, listen: false).toggleLock(link.id!);
+                  },
+                ),
+                _buildMenuItem(
+                  context,
+                  icon: link.isFavorite ? Icons.favorite : Icons.favorite_border,
+                  label: link.isFavorite ? 'Remove from Favorites' : 'Add to Favorites',
+                  iconColor: Colors.pink,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    Provider.of<LinkProvider>(context, listen: false).toggleFavorite(link.id!);
+                  },
+                ),
+                _buildMenuItem(
+                  context,
+                  icon: Icons.share,
+                  label: 'Share Link',
+                  iconColor: Colors.blue.shade700,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    Share.share('${link.title}\n${link.url}');
+                  },
+                ),
+                _buildMenuItem(
+                  context,
+                  icon: Icons.move_to_inbox,
+                  label: 'Move',
+                  iconColor: Colors.blue.shade700,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showEditDialog(context);
+                  },
+                ),
+                _buildMenuItem(
+                  context,
+                  icon: Icons.copy,
+                  label: 'Copy Link',
+                  iconColor: Colors.blue.shade700,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    Clipboard.setData(ClipboardData(text: link.url));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Link copied to clipboard!')),
+                    );
+                  },
+                ),
+                _buildMenuItem(
+                  context,
+                  icon: Icons.delete,
+                  label: 'Delete',
+                  iconColor: Colors.red,
+                  textColor: Colors.red,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showDeleteConfirmationDialog(context);
+                  },
+                ),
+              ],
+            ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildMenuItem(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    Color? iconColor,
+    Color? textColor,
+  }) {
+    return ListTile(
+      leading: Icon(icon, color: iconColor),
+      title: Text(
+        label,
+        style: GoogleFonts.poppins(
+          fontWeight: FontWeight.w500,
+          color: textColor ?? Theme.of(context).textTheme.bodyLarge?.color,
+        ),
+      ),
+      onTap: onTap,
     );
   }
 
@@ -1182,7 +1614,7 @@ class LinkCard extends StatelessWidget {
                             labelText: 'Title',
                             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                             filled: true,
-                            fillColor: Colors.grey.shade100,
+                            fillColor: Theme.of(context).brightness == Brightness.dark ? Colors.grey.shade800 : Colors.grey.shade100,
                           ),
                         ),
                         const SizedBox(height: 16),
@@ -1199,32 +1631,66 @@ class LinkCard extends StatelessWidget {
                             labelText: 'URL',
                             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                             filled: true,
-                            fillColor: Colors.grey.shade100,
+                            fillColor: Theme.of(context).brightness == Brightness.dark ? Colors.grey.shade800 : Colors.grey.shade100,
                           ),
                         ),
                         const SizedBox(height: 20),
                         Text('Select Category:', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 14)),
                         const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 0,
-                          children: provider.categories.map((cat) {
-                            final isSelected = selectedCategoryId == cat.id;
-                            return ChoiceChip(
-                              label: Text(cat.name),
-                              selected: isSelected,
-                              onSelected: (selected) {
-                                setDialogState(() {
-                                  selectedCategoryId = selected ? cat.id : null;
-                                });
-                              },
-                              selectedColor: Colors.blue.shade800,
-                              labelStyle: TextStyle(
-                                color: isSelected ? Colors.white : Colors.black,
-                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                              ),
-                            );
-                          }).toList(),
+                        SizedBox(
+                          width: double.maxFinite,
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: provider.categories.map((cat) {
+                              final isSelected = selectedCategoryId == cat.id;
+                              return GestureDetector(
+                                onTap: () {
+                                  setDialogState(() {
+                                    selectedCategoryId = isSelected ? null : cat.id;
+                                  });
+                                },
+                                child: Container(
+                                  width: 76,
+                                  padding: const EdgeInsets.symmetric(vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: isSelected ? Colors.blue.shade800 : (Theme.of(context).brightness == Brightness.dark ? Colors.grey.shade800 : Colors.grey.shade100),
+                                    borderRadius: BorderRadius.circular(20),
+                                    boxShadow: isSelected
+                                        ? [
+                                            BoxShadow(
+                                              color: Colors.blue.shade800.withValues(alpha: 0.4),
+                                              blurRadius: 8,
+                                              offset: const Offset(0, 2),
+                                            )
+                                          ]
+                                        : null,
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      if (isSelected) ...[
+                                        const Icon(Icons.check, size: 12, color: Colors.white),
+                                        const SizedBox(width: 4),
+                                      ],
+                                      Flexible(
+                                        child: Text(
+                                          cat.name,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: isSelected ? Colors.white : (Theme.of(context).brightness == Brightness.dark ? Colors.white : Colors.black),
+                                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
                         ),
                       ],
                     ),

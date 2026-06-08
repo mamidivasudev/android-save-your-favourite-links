@@ -36,12 +36,19 @@ class JsonStorageService {
     try {
       final file = await _localFile;
       if (!await file.exists()) {
-        return {'categories': [], 'links': []};
+        return {'version': 1, 'categories': [], 'links': []};
       }
       final contents = await file.readAsString();
-      return jsonDecode(contents);
+      final data = jsonDecode(contents) as Map<String, dynamic>;
+
+      // Handle old backups without version field
+      if (!data.containsKey('version')) {
+        data['version'] = 1; // treat as version 1
+      }
+
+      return data;
     } catch (e) {
-      return {'categories': [], 'links': []};
+      return {'version': 1, 'categories': [], 'links': []};
     }
   }
 
@@ -50,8 +57,15 @@ class JsonStorageService {
       final file = await _localFile;
       final tempFile = File('${file.path}.tmp');
       
+      final dataWithVersion = {
+        'version': 1,
+        'exportedAt': DateTime.now().toIso8601String(),
+        'categories': data['categories'] ?? [],
+        'links': data['links'] ?? [],
+      };
+
       // Atomic write: write to temp file first, then rename to original file
-      await tempFile.writeAsString(jsonEncode(data));
+      await tempFile.writeAsString(jsonEncode(dataWithVersion));
       await tempFile.rename(file.path);
     } catch (e) {
       debugPrint('Storage write error: $e');
@@ -73,8 +87,9 @@ class JsonStorageService {
       } else {
         // They chose a path but we lost access. We shouldn't overwrite their setting.
         debugPrint('CRITICAL: Lost write access to custom folder!');
-        // We could throw an exception here for the UI to catch
-        // throw FileSystemException('Lost write access to custom folder');
+        throw FileSystemException(
+          'Lost write access to custom storage folder. Please check folder permissions in Settings.'
+        );
       }
     }
   }

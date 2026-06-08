@@ -8,12 +8,7 @@ import '../models/category_item.dart';
 import '../services/database_helper.dart';
 
 class DataService {
-  static final DatabaseHelper _dbHelper = DatabaseHelper();
-
-  static Future<void> exportData() async {
-    final links = await _dbHelper.getLinks();
-    final categories = await _dbHelper.getCategories();
-
+  static Future<void> exportData(List<CategoryItem> categories, List<LinkItem> links) async {
     final data = {
       'categories': categories.map((c) => c.toMap()).toList(),
       'links': links.map((l) => l.toMap()).toList(),
@@ -27,43 +22,81 @@ class DataService {
     await Share.shareXFiles([XFile(file.path)], text: 'Links Saver Backup');
   }
 
-  static Future<bool> importData() async {
+  static Future<bool> importData(dynamic provider) async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['json'],
     );
 
-    if (result != null) {
+    if (result == null) return false;
+
+    try {
       File file = File(result.files.single.path!);
       String content = await file.readAsString();
       Map<String, dynamic> data = jsonDecode(content);
 
-      if (data.containsKey('categories') && data.containsKey('links')) {
-        // Import Categories
-        final categoriesData = data['categories'] as List;
-        for (var catMap in categoriesData) {
-          final category = CategoryItem.fromMap(catMap);
-          // Try to insert, ignore if exists (unique name)
-          try {
-            await _dbHelper.insertCategory(category);
-          } catch (e) {
-            // Already exists or other error
+      if (!data.containsKey('categories') || !data.containsKey('links')) {
+        return false;
+      }
+
+      // We pass the raw JSON content to the provider's restore function
+      // But we want to *merge* it instead of overwriting like Google Drive does.
+      
+      final importedCategories = (data['categories'] as List)
+          .map((c) => CategoryItem.fromMap(Map<String, dynamic>.from(c)))
+          .toList();
+          
+      final importedLinks = (data['links'] as List)
+          .map((l) => LinkItem.fromMap(Map<String, dynamic>.from(l)))
+          .toList();
+
+      // Step 1: Import Categories
+      for (var cat in importedCategories) {
+        if (!provider.categories.any((existing) => existing.name.toLowerCase().trim() == cat.name.toLowerCase().trim())) {
+          await provider.addCategory(cat.name);
+        }
+      }
+
+      // Map imported category ID to new category ID
+      final categoryNameToNewId = <String, int>{};
+      for (final cat in provider.categories) {
+        categoryNameToNewId[cat.name.toLowerCase().trim()] = cat.id!;
+      }
+
+      // Step 2: Import Links
+      final existingUrls = provider.links.map((l) => l.url.toLowerCase().trim()).toSet();
+      
+      for (var link in importedLinks) {
+        final urlKey = link.url.toLowerCase().trim();
+        
+        // Skip if already exists
+        if (existingUrls.contains(urlKey)) continue;
+
+        // Find new category ID
+        int? newCategoryId;
+        if (link.categoryId != null) {
+          final oldCat = importedCategories.firstWhere(
+            (c) => c.id == link.categoryId,
+            orElse: () => CategoryItem(id: 0, name: ''),
+          );
+          if (oldCat.name.isNotEmpty) {
+            newCategoryId = categoryNameToNewId[oldCat.name.toLowerCase().trim()];
           }
         }
 
-        // Re-fetch categories to get correct IDs
-        final updatedCategories = await _dbHelper.getCategories();
-
-        // Import Links
-        final linksData = data['links'] as List;
-        for (var linkMap in linksData) {
-          final link = LinkItem.fromMap(linkMap);
-          // Check if link already exists (simple URL check or just insert new)
-          await _dbHelper.insertLink(link);
+        // We bypass the provider's `addLink` temporarily to avoid throwing exceptions 
+        // and we pass the category ID.
+        try {
+          await provider.addLink(link.title, link.url, categoryId: newCategoryId);
+          existingUrls.add(urlKey);
+        } catch (e) {
+          continue;
         }
-        return true;
       }
+
+      return true;
+    } catch (e) {
+      return false;
     }
-    return false;
   }
 }

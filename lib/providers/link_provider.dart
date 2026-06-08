@@ -25,6 +25,67 @@ class LinkProvider with ChangeNotifier {
   List<LinkItem> get links => _links;
   List<CategoryItem> get categories => _categories;
 
+  String? _storageError;
+  String? get storageError => _storageError;
+
+  void clearStorageError() {
+    if (_storageError != null) {
+      _storageError = null;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _safeSave(Future<void> Function() saveOperation) async {
+    try {
+      await saveOperation();
+      clearStorageError();
+    } on FileSystemException catch (e) {
+      _storageError = 'Could not save data: ${e.message}';
+      notifyListeners();
+    }
+  }
+
+  bool _showLinkPreviews = false;
+  bool get showLinkPreviews => _showLinkPreviews;
+
+  bool _isAppLockEnabled = false;
+  bool get isAppLockEnabled => _isAppLockEnabled;
+
+  bool _isAuthenticating = false;
+  bool get isAuthenticating => _isAuthenticating;
+
+  void setAuthenticating(bool value) {
+    if (!value) {
+      // Delay turning off the authenticating flag by 2000ms.
+      // This is necessary because the Android native biometric prompt
+      // triggers an AppLifecycleState.resumed event *after* the dialog 
+      // finishes animating out. On some devices, this can take up to 1.5 seconds.
+      // If we don't delay enough, the app sees the resume event, thinks we 
+      // aren't authenticating, and instantly locks the app again.
+      Future.delayed(const Duration(milliseconds: 2000), () {
+        _isAuthenticating = false;
+        notifyListeners();
+      });
+    } else {
+      _isAuthenticating = true;
+      notifyListeners();
+    }
+  }
+
+  Future<void> toggleLinkPreviews() async {
+    _showLinkPreviews = !_showLinkPreviews;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('showLinkPreviews', _showLinkPreviews);
+    notifyListeners();
+  }
+
+  Future<void> toggleAppLock(bool value) async {
+    _isAppLockEnabled = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isAppLockEnabled', _isAppLockEnabled);
+    notifyListeners();
+  }
+
   Future<void> _autoSyncToDrive() async {
     // Check if user is already signed in silently
     final account = await _driveService.signInSilently();
@@ -42,6 +103,10 @@ class LinkProvider with ChangeNotifier {
   }
 
   Future<void> _init() async {
+    final prefs = await SharedPreferences.getInstance();
+    _showLinkPreviews = prefs.getBool('showLinkPreviews') ?? false;
+    _isAppLockEnabled = prefs.getBool('isAppLockEnabled') ?? false;
+
     // Always initialize — uses app documents dir by default if no custom path set
     await _migrateIfNeeded();
     await fetchCategories();
@@ -81,9 +146,13 @@ class LinkProvider with ChangeNotifier {
   Future<void> setGoogleDriveAutoSyncEnabled(bool enabled) => _driveService.setAutoSyncEnabled(enabled);
 
   Future<DriveSyncResult> signInToGoogleDrive() async {
-    final account = await _driveService.signIn();
-    if (account == null) return const DriveSyncResult(success: false, message: 'Sign in failed');
-    return DriveSyncResult(success: true, message: 'Signed in successfully', accountEmail: account.email);
+    try {
+      final account = await _driveService.signIn();
+      if (account == null) return const DriveSyncResult(success: false, message: 'Sign in failed');
+      return DriveSyncResult(success: true, message: 'Signed in successfully', accountEmail: account.email);
+    } catch (e) {
+      return DriveSyncResult(success: false, message: 'Sign in error: $e');
+    }
   }
 
   Future<DriveSyncResult> signOutFromGoogleDrive() async {
@@ -128,7 +197,7 @@ class LinkProvider with ChangeNotifier {
         final dbCategories = await _dbHelper.getCategories();
         
         if (dbLinks.isNotEmpty || dbCategories.isNotEmpty) {
-          await _storageService.saveData(links: dbLinks, categories: dbCategories);
+          await _safeSave(() => _storageService.saveData(links: dbLinks, categories: dbCategories));
           migratedCategories = dbCategories.isNotEmpty;
         }
       }
@@ -143,7 +212,7 @@ class LinkProvider with ChangeNotifier {
         CategoryItem(id: 4, name: 'Google'),
         CategoryItem(id: 5, name: 'Others'),
       ];
-      await _storageService.saveCategories(defaultCategories);
+      await _safeSave(() => _storageService.saveCategories(defaultCategories));
     }
   }
 
@@ -173,21 +242,21 @@ class LinkProvider with ChangeNotifier {
       categoryId: categoryId ?? getAutoCategoryId(url),
     );
     _links.insert(0, newLink);
-    await _storageService.saveLinks(_links);
+    await _safeSave(() => _storageService.saveLinks(_links));
     notifyListeners();
     _autoSyncToDrive();
   }
 
   Future<void> removeLink(int id) async {
     _links.removeWhere((l) => l.id == id);
-    await _storageService.saveLinks(_links);
+    await _safeSave(() => _storageService.saveLinks(_links));
     notifyListeners();
     _autoSyncToDrive();
   }
 
   Future<void> removeMultipleLinks(List<int> ids) async {
     _links.removeWhere((l) => ids.contains(l.id));
-    await _storageService.saveLinks(_links);
+    await _safeSave(() => _storageService.saveLinks(_links));
     notifyListeners();
     _autoSyncToDrive();
   }
@@ -196,10 +265,25 @@ class LinkProvider with ChangeNotifier {
     final index = _links.indexWhere((l) => l.id == link.id);
     if (index != -1) {
       _links[index] = link;
-      await _storageService.saveLinks(_links);
+      await _safeSave(() => _storageService.saveData(links: _links, categories: _categories));
       notifyListeners();
       _autoSyncToDrive();
     }
+  }
+
+  Future<void> togglePin(int id) async {
+    final link = _links.firstWhere((l) => l.id == id);
+    await updateLink(link.copyWith(isPinned: !link.isPinned));
+  }
+
+  Future<void> toggleFavorite(int id) async {
+    final link = _links.firstWhere((l) => l.id == id);
+    await updateLink(link.copyWith(isFavorite: !link.isFavorite));
+  }
+
+  Future<void> toggleLock(int id) async {
+    final link = _links.firstWhere((l) => l.id == id);
+    await updateLink(link.copyWith(isLocked: !link.isLocked));
   }
 
   // Categories
@@ -207,7 +291,7 @@ class LinkProvider with ChangeNotifier {
     final nextId = _categories.isEmpty ? 1 : (_categories.map((c) => c.id ?? 0).reduce((a, b) => a > b ? a : b) + 1);
     final newCategory = CategoryItem(id: nextId, name: name);
     _categories.add(newCategory);
-    await _storageService.saveCategories(_categories);
+    await _safeSave(() => _storageService.saveCategories(_categories));
     notifyListeners();
     _autoSyncToDrive();
   }
@@ -216,7 +300,7 @@ class LinkProvider with ChangeNotifier {
     final index = _categories.indexWhere((c) => c.id == category.id);
     if (index != -1) {
       _categories[index] = category;
-      await _storageService.saveCategories(_categories);
+      await _safeSave(() => _storageService.saveCategories(_categories));
       notifyListeners();
       _autoSyncToDrive();
     }
@@ -224,14 +308,20 @@ class LinkProvider with ChangeNotifier {
 
   Future<void> removeCategory(int id) async {
     _categories.removeWhere((c) => c.id == id);
-    _links = _links.map((link) {
-      if (link.categoryId == id) {
-        return link.copyWith(categoryId: null);
-      }
-      return link;
-    }).toList();
+    // Delete all links associated with this category
+    _links.removeWhere((link) => link.categoryId == id);
     
-    await _storageService.saveData(links: _links, categories: _categories);
+    await _safeSave(() => _storageService.saveData(links: _links, categories: _categories));
+    notifyListeners();
+    _autoSyncToDrive();
+  }
+
+  Future<void> removeMultipleCategories(List<int> ids) async {
+    _categories.removeWhere((c) => ids.contains(c.id));
+    // Delete all links associated with these categories
+    _links.removeWhere((link) => ids.contains(link.categoryId));
+    
+    await _safeSave(() => _storageService.saveData(links: _links, categories: _categories));
     notifyListeners();
     _autoSyncToDrive();
   }
@@ -277,7 +367,7 @@ class LinkProvider with ChangeNotifier {
             .map((l) => LinkItem.fromMap(l as Map<String, dynamic>))
             .toList();
 
-        await _storageService.saveData(links: _links, categories: _categories);
+        await _safeSave(() => _storageService.saveData(links: _links, categories: _categories));
         notifyListeners();
       }
     } catch (e) {
