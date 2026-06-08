@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:async';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
@@ -21,6 +23,10 @@ class LinkProvider with ChangeNotifier {
   final JsonStorageService _storageService = JsonStorageService();
   final DatabaseHelper _dbHelper = DatabaseHelper();
   final GoogleDriveService _driveService = GoogleDriveService();
+  
+  bool _hasPendingSync = false;
+  bool get hasPendingSync => _hasPendingSync;
+  StreamSubscription? _connectivitySubscription;
 
   List<LinkItem> get links => _links;
   List<CategoryItem> get categories => _categories;
@@ -92,10 +98,24 @@ class LinkProvider with ChangeNotifier {
     if (account != null) {
       final jsonContent = await getBackupJson();
       // Backup in background without awaiting, so UI doesn't block
-      _driveService.backupToDrive(jsonContent).then((result) {
+      _driveService.backupToDrive(jsonContent).then((result) async {
         debugPrint("Auto-sync to Drive result: $result");
+        final prefs = await SharedPreferences.getInstance();
+        if (result == BackupResult.error) {
+          _hasPendingSync = true;
+          await prefs.setBool('hasPendingSync', true);
+        } else if (result == BackupResult.success) {
+          _hasPendingSync = false;
+          await prefs.setBool('hasPendingSync', false);
+        }
       });
     }
+  }
+
+  @override
+  void dispose() {
+    _connectivitySubscription?.cancel();
+    super.dispose();
   }
 
   LinkProvider() {
@@ -106,6 +126,22 @@ class LinkProvider with ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     _showLinkPreviews = prefs.getBool('showLinkPreviews') ?? false;
     _isAppLockEnabled = prefs.getBool('isAppLockEnabled') ?? false;
+    _hasPendingSync = prefs.getBool('hasPendingSync') ?? false;
+
+    // Listen to network changes to automatically sync pending changes
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((result) {
+      bool isOnline = false;
+      if (result is List) {
+        isOnline = (result as List).any((r) => r != ConnectivityResult.none);
+      } else {
+        isOnline = result != ConnectivityResult.none;
+      }
+      
+      if (isOnline && _hasPendingSync) {
+        debugPrint("Internet restored. Triggering pending sync...");
+        _autoSyncToDrive();
+      }
+    });
 
     // Always initialize — uses app documents dir by default if no custom path set
     await _migrateIfNeeded();
@@ -144,6 +180,8 @@ class LinkProvider with ChangeNotifier {
   Future<bool> getGoogleDriveAutoSyncEnabled() => _driveService.getAutoSyncEnabled();
   Future<DateTime?> getGoogleDriveLastSync() => _driveService.getLastSync();
   Future<void> setGoogleDriveAutoSyncEnabled(bool enabled) => _driveService.setAutoSyncEnabled(enabled);
+
+  Future<bool> isGoogleDriveSignedIn() => _driveService.isSignedIn();
 
   Future<DriveSyncResult> signInToGoogleDrive() async {
     try {

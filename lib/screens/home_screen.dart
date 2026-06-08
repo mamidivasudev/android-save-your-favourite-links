@@ -755,10 +755,29 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     try {
                       await provider.addLink(titleController.text, normalized, categoryId: selectedCategoryId);
-                      Navigator.of(context).pop();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Link saved successfully!')),
-                      );
+
+                      bool shouldShowMilestone = false;
+                      if (provider.links.length == 1000) {
+                        final prefs = await SharedPreferences.getInstance();
+                        final hasShown = prefs.getBool('has_shown_1k_warning') ?? false;
+                        if (!hasShown) {
+                          final isDriveEnabled = await provider.isGoogleDriveSignedIn();
+                          if (!isDriveEnabled) {
+                            await prefs.setBool('has_shown_1k_warning', true);
+                            shouldShowMilestone = true;
+                          }
+                        }
+                      }
+
+                      if (context.mounted) {
+                        Navigator.of(context).pop();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Link saved successfully!')),
+                        );
+                        if (shouldShowMilestone) {
+                          _show1kMilestoneWarning(context);
+                        }
+                      }
                     } on DuplicateLinkException catch (e) {
                       Navigator.of(context).pop();
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -1728,7 +1747,43 @@ class LinkCard extends StatelessWidget {
     } else if (url.contains('maps.google') || url.contains('goo.gl/maps') || url.contains('google.com/maps') || url.contains('maps.app.goo.gl')) {
       return Image.asset('assets/icons/maps.png', width: 32, height: 32);
     } else {
-      return Icon(Icons.link, color: Colors.blue.shade800, size: 28);
     }
+  }
+
+  void _show1kMilestoneWarning(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            const Text('🎉', style: TextStyle(fontSize: 24)),
+            const SizedBox(width: 10),
+            Expanded(child: Text('Wow, 1,000 Links!', style: GoogleFonts.poppins(fontWeight: FontWeight.bold))),
+          ],
+        ),
+        content: Text(
+          "You've built a massive collection! To ensure you never lose your data if something happens to your device, we highly recommend enabling Google Drive Backup in the side menu.",
+          style: GoogleFonts.poppins(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text('Maybe Later', style: GoogleFonts.poppins(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              Scaffold.of(context).openDrawer();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue.shade800,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: Text('Enable Backup', style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
   }
 }
