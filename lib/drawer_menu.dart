@@ -694,20 +694,16 @@ class _AppDrawerState extends State<AppDrawer> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(Icons.link, color: Colors.white, size: 22),
-            ),
-            const SizedBox(width: 12),
-            Text('Link Saver', style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 22)),
-          ],
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.15),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: const Icon(Icons.link, color: Colors.white, size: 30),
         ),
+        const SizedBox(height: 14),
+        Text('Link Saver', style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 22)),
         Text('Sign in to enable Google Drive backup', style: GoogleFonts.poppins(color: Colors.white70, fontSize: 12)),
         const SizedBox(height: 14),
         _isLoading

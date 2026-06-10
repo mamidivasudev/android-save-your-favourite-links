@@ -8,10 +8,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'providers/link_provider.dart';
 import 'providers/theme_provider.dart';
 import 'screens/home_screen.dart';
+import 'screens/onboarding_screen.dart';
 import 'utils/url_validator.dart';
 import 'services/auth_service.dart';
+import 'utils/globals.dart';
 
-void main() {
+import 'package:google_mobile_ads/google_mobile_ads.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await MobileAds.instance.initialize();
+  
   runApp(
     MultiProvider(
       providers: [
@@ -35,6 +42,7 @@ class LinkSaverApp extends StatelessWidget {
     return Consumer<ThemeProvider>(
       builder: (context, themeProvider, child) {
         return MaterialApp(
+          scaffoldMessengerKey: scaffoldMessengerKey,
           title: 'Fav Link Saver',
           debugShowCheckedModeBanner: false,
           themeMode: themeProvider.themeMode,
@@ -47,6 +55,9 @@ class LinkSaverApp extends StatelessWidget {
             ),
             useMaterial3: true,
             textTheme: GoogleFonts.poppinsTextTheme(),
+            snackBarTheme: const SnackBarThemeData(
+              behavior: SnackBarBehavior.floating,
+            ),
           ),
           darkTheme: ThemeData(
             colorScheme: ColorScheme.fromSeed(
@@ -57,6 +68,9 @@ class LinkSaverApp extends StatelessWidget {
             ),
             useMaterial3: true,
             textTheme: GoogleFonts.poppinsTextTheme(ThemeData(brightness: Brightness.dark).textTheme),
+            snackBarTheme: const SnackBarThemeData(
+              behavior: SnackBarBehavior.floating,
+            ),
           ),
           home: const MainWrapper(),
         );
@@ -77,6 +91,8 @@ class _MainWrapperState extends State<MainWrapper> with WidgetsBindingObserver {
   String? _sharedText;
   bool _isAuthenticated = false;
   bool _isCheckingAuth = true;
+  bool _hasSeenOnboarding = false;
+  bool _wasPaused = false;
 
   @override
   void initState() {
@@ -116,15 +132,43 @@ class _MainWrapperState extends State<MainWrapper> with WidgetsBindingObserver {
     });
   }
 
+  Future<void> _triggerAuth() async {
+    if (!mounted) return;
+    try {
+      final provider = Provider.of<LinkProvider>(context, listen: false);
+      if (provider.isAuthenticating) return;
+      
+      provider.setAuthenticating(true);
+      final authenticated = await AuthService.authenticateForLink();
+      provider.setAuthenticating(false);
+      
+      if (authenticated && mounted) {
+        setState(() {
+          _isAuthenticated = true;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(duration: const Duration(seconds: 2), content: Text('Error: $e - Try fully stopping the app.')),
+        );
+      }
+    }
+  }
+
   Future<void> _checkInitialAuth() async {
     final prefs = await SharedPreferences.getInstance();
+    
+    // Check onboarding
+    _hasSeenOnboarding = prefs.getBool('has_seen_onboarding') ?? false;
+
+    // Check app lock
     final isLocked = prefs.getBool('isAppLockEnabled') ?? false;
     if (isLocked) {
-      // Actually we don't need to await here. The build method will show the lock screen
-      // because _isAuthenticated is false by default. We just let the UI render the lock screen.
       setState(() {
         _isCheckingAuth = false;
       });
+      _triggerAuth();
     } else {
       setState(() {
         _isAuthenticated = true;
@@ -133,17 +177,33 @@ class _MainWrapperState extends State<MainWrapper> with WidgetsBindingObserver {
     }
   }
 
+  void _finishOnboarding() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('has_seen_onboarding', true);
+    setState(() {
+      _hasSeenOnboarding = true;
+    });
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      _wasPaused = true;
+    }
+
     if (state == AppLifecycleState.resumed) {
+      bool shouldLock = _wasPaused;
+      _wasPaused = false;
+
       final provider = Provider.of<LinkProvider>(context, listen: false);
       if (provider.isAuthenticating) return; // Ignore resume if coming back from biometric prompt
       
       final isAppLockEnabled = provider.isAppLockEnabled;
-      if (isAppLockEnabled) {
+      if (isAppLockEnabled && shouldLock) {
         setState(() {
           _isAuthenticated = false;
         });
+        _triggerAuth();
       }
     }
   }
@@ -198,48 +258,27 @@ class _MainWrapperState extends State<MainWrapper> with WidgetsBindingObserver {
             children: [
               const Icon(Icons.lock_outline, size: 80, color: Colors.white),
               const SizedBox(height: 24),
-              Text('App Locked', style: GoogleFonts.poppins(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
+              Text('Link Vault Locked', style: GoogleFonts.poppins(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
               const SizedBox(height: 48),
               ElevatedButton.icon(
                 icon: const Icon(Icons.fingerprint, size: 28),
-                label: const Text('Tap to Unlock', style: TextStyle(fontSize: 18)),
+                label: const Text('Unlock Now', style: TextStyle(fontSize: 18)),
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
                   backgroundColor: Colors.white,
                   foregroundColor: Colors.blue.shade900,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
                 ),
-                onPressed: () async {
-                  try {
-                    final provider = Provider.of<LinkProvider>(context, listen: false);
-                    provider.setAuthenticating(true);
-                    final authenticated = await AuthService.authenticateForLink();
-                    provider.setAuthenticating(false);
-                    
-                    if (authenticated) {
-                      setState(() {
-                        _isAuthenticated = true;
-                      });
-                    } else {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Authentication failed. Please stop the app and rebuild if this continues.')),
-                        );
-                      }
-                    }
-                  } catch (e) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Error: $e - Try fully stopping the app.')),
-                      );
-                    }
-                  }
-                },
+                onPressed: _triggerAuth,
               ),
             ],
           ),
         ),
       );
+    }
+
+    if (!_hasSeenOnboarding) {
+      return OnboardingScreen(onFinish: _finishOnboarding);
     }
 
     return const HomeScreen();
@@ -312,7 +351,7 @@ class _SaveLinkDialogState extends State<SaveLinkDialog> {
         provider.addLink(_controller.text, normalized, categoryId: _selectedCategoryId);
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Link saved successfully!')),
+          const SnackBar(duration: const Duration(seconds: 2), content: Text('Link saved successfully!')),
         );
         if (widget.closeAppOnSave) {
           Future.delayed(const Duration(milliseconds: 500), () => SystemNavigator.pop());
@@ -320,7 +359,7 @@ class _SaveLinkDialogState extends State<SaveLinkDialog> {
       } on DuplicateLinkException catch (e) {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          SnackBar(duration: const Duration(seconds: 2), 
             content: Row(
               children: [
                 const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 20),

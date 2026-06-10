@@ -11,6 +11,7 @@ import '../models/category_item.dart';
 import '../services/json_storage_service.dart';
 import '../services/database_helper.dart';
 import '../services/google_drive_service.dart';
+import '../utils/globals.dart';
 
 class DuplicateLinkException implements Exception {
   final String message;
@@ -27,6 +28,9 @@ class LinkProvider with ChangeNotifier {
   bool _hasPendingSync = false;
   bool get hasPendingSync => _hasPendingSync;
   StreamSubscription? _connectivitySubscription;
+
+  bool _isProUser = false;
+  bool get isProUser => _isProUser;
 
   List<LinkItem> get links => _links;
   List<CategoryItem> get categories => _categories;
@@ -92,23 +96,68 @@ class LinkProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _autoSyncToDrive() async {
+  Future<void> unlockPro() async {
+    _isProUser = true;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isProUser', true);
+    notifyListeners();
+  }
+
+  // DEBUG ONLY: Remove Pro
+  Future<void> removePro() async {
+    _isProUser = false;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isProUser', false);
+    notifyListeners();
+  }
+
+  bool _hasCustomStoragePathSync = false;
+  bool get hasCustomStoragePathSync => _hasCustomStoragePathSync;
+
+  bool _isAutoSyncing = false;
+  bool get isAutoSyncing => _isAutoSyncing;
+
+  Future<void> _autoSyncToDrive({bool showSuccessMessage = false}) async {
+    if (!_isProUser) return; // Auto-sync is a Pro feature
+
+    _isAutoSyncing = true;
+    notifyListeners();
+
     // Check if user is already signed in silently
     final account = await _driveService.signInSilently();
     if (account != null) {
       final jsonContent = await getBackupJson();
-      // Backup in background without awaiting, so UI doesn't block
       _driveService.backupToDrive(jsonContent).then((result) async {
         debugPrint("Auto-sync to Drive result: $result");
+        
+        _isAutoSyncing = false;
+        notifyListeners();
+
         final prefs = await SharedPreferences.getInstance();
         if (result == BackupResult.error) {
-          _hasPendingSync = true;
-          await prefs.setBool('hasPendingSync', true);
+          if (!_hasPendingSync) {
+            if (scaffoldMessengerKey.currentState != null) {
+              scaffoldMessengerKey.currentState!.showSnackBar(
+                const SnackBar(duration: const Duration(seconds: 2), content: Text('Offline: Changes saved locally. Sync is pending...')),
+              );
+            }
+            _hasPendingSync = true;
+            await prefs.setBool('hasPendingSync', true);
+          }
         } else if (result == BackupResult.success) {
           _hasPendingSync = false;
           await prefs.setBool('hasPendingSync', false);
+          
+          if (showSuccessMessage && scaffoldMessengerKey.currentState != null) {
+            scaffoldMessengerKey.currentState!.showSnackBar(
+              const SnackBar(duration: const Duration(seconds: 2), content: Text('Pending changes synced to Drive successfully!')),
+            );
+          }
         }
       });
+    } else {
+      _isAutoSyncing = false;
+      notifyListeners();
     }
   }
 
@@ -127,6 +176,10 @@ class LinkProvider with ChangeNotifier {
     _showLinkPreviews = prefs.getBool('showLinkPreviews') ?? false;
     _isAppLockEnabled = prefs.getBool('isAppLockEnabled') ?? false;
     _hasPendingSync = prefs.getBool('hasPendingSync') ?? false;
+    _isProUser = prefs.getBool('isProUser') ?? false;
+
+    final customPath = await _storageService.getCustomPath();
+    _hasCustomStoragePathSync = customPath != null && customPath.isNotEmpty;
 
     // Listen to network changes to automatically sync pending changes
     _connectivitySubscription = Connectivity().onConnectivityChanged.listen((result) {
@@ -139,7 +192,7 @@ class LinkProvider with ChangeNotifier {
       
       if (isOnline && _hasPendingSync) {
         debugPrint("Internet restored. Triggering pending sync...");
-        _autoSyncToDrive();
+        _autoSyncToDrive(showSuccessMessage: true);
       }
     });
 
@@ -171,6 +224,7 @@ class LinkProvider with ChangeNotifier {
 
   Future<void> setStoragePath(String path) async {
     await _storageService.setCustomPath(path);
+    _hasCustomStoragePathSync = path.isNotEmpty;
     await _init();
     notifyListeners();
   }
@@ -181,7 +235,6 @@ class LinkProvider with ChangeNotifier {
   Future<DateTime?> getGoogleDriveLastSync() => _driveService.getLastSync();
   Future<void> setGoogleDriveAutoSyncEnabled(bool enabled) => _driveService.setAutoSyncEnabled(enabled);
 
-  Future<bool> isGoogleDriveSignedIn() => _driveService.isSignedIn();
 
   Future<DriveSyncResult> signInToGoogleDrive() async {
     try {

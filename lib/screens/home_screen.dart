@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:showcaseview/showcaseview.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/link_provider.dart';
 import 'package:any_link_preview/any_link_preview.dart';
 import '../models/link_item.dart';
@@ -15,6 +17,9 @@ import '../screens/drawer_menu.dart';
 import '../screens/google_drive_dialog.dart';
 import '../services/auth_service.dart';
 import '../utils/url_validator.dart';
+import '../screens/premium_screen.dart';
+import '../widgets/banner_ad_widget.dart';
+import '../widgets/manage_categories_dialog.dart';
 
 enum SortOption { newest, oldest, aToZ, zToA }
 
@@ -25,7 +30,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
   bool _isSelectionMode = false;
   final Set<int> _selectedLinkIds = {};
   bool _isSyncing = false;
@@ -37,21 +42,45 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
 
+  final GlobalKey _addKey = GlobalKey();
+  final GlobalKey _menuKey = GlobalKey();
+  final GlobalKey _searchKey = GlobalKey();
+
+  late AnimationController _syncAnimationController;
+
   @override
   void dispose() {
     _searchController.dispose();
+    _syncAnimationController.dispose();
     super.dispose();
   }
 
   @override
   void initState() {
     super.initState();
+    _syncAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 1),
+    );
+    
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final provider = Provider.of<LinkProvider>(context, listen: false);
       if (!await provider.hasCompletedSetup()) {
         if (mounted) _showSetupDialog();
+      } else {
+        await _checkAndStartShowcase();
       }
     });
+  }
+
+  Future<void> _checkAndStartShowcase() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!(prefs.getBool('showcase_done') ?? false)) {
+      if (mounted) {
+        ShowCaseWidget.of(context).startShowCase([_menuKey, _searchKey, _addKey]);
+        await prefs.setBool('showcase_done', true);
+      }
+    }
   }
 
   void _showSetupDialog() {
@@ -74,17 +103,50 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           TextButton(
             onPressed: () async {
+              final provider = Provider.of<LinkProvider>(context, listen: false);
               Navigator.pop(ctx);
-              await Provider.of<LinkProvider>(context, listen: false).setSetupCompleted(true);
-              showDialog(context: context, builder: (_) => const GoogleDriveDialog());
+              await showDialog(context: context, builder: (_) => const GoogleDriveDialog());
+              
+              if (mounted) {
+                if (await provider.isDriveSignedIn()) {
+                  await provider.setSetupCompleted(true);
+                  _checkAndStartShowcase();
+                }
+              }
             },
-            child: Text('Google Drive', style: GoogleFonts.poppins(color: Colors.blue.shade600)),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Google Drive', style: GoogleFonts.poppins(color: Colors.blue.shade600)),
+              ]
+            ),
           ),
           ElevatedButton(
             onPressed: () async {
               Navigator.pop(ctx);
-              await Provider.of<LinkProvider>(context, listen: false).setSetupCompleted(true);
-              _showFolderPicker();
+              
+              if (Theme.of(context).platform == TargetPlatform.android) {
+                var status = await Permission.manageExternalStorage.request();
+                if (!status.isGranted) {
+                  status = await Permission.storage.request();
+                }
+              }
+
+              String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
+              if (selectedDirectory != null && mounted) {
+                final provider = Provider.of<LinkProvider>(context, listen: false);
+                await provider.setStoragePath(selectedDirectory);
+                await provider.setSetupCompleted(true);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(duration: const Duration(seconds: 2), 
+                    content: Text('Storage folder updated!', style: GoogleFonts.poppins(fontSize: 13)),
+                    backgroundColor: const Color(0xFF16A34A),
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                );
+                _checkAndStartShowcase();
+              }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.blue.shade700,
@@ -130,7 +192,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 await Provider.of<LinkProvider>(context, listen: false)
                     .setStoragePath(selectedDirectory);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
+                  SnackBar(duration: const Duration(seconds: 2), 
                     content: Text('Storage folder updated!', style: GoogleFonts.poppins(fontSize: 13)),
                     backgroundColor: const Color(0xFF16A34A),
                     behavior: SnackBarBehavior.floating,
@@ -239,7 +301,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (account == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          SnackBar(duration: const Duration(seconds: 2), 
             content: Row(children: [
               const Icon(Icons.info_outline, color: Colors.white, size: 18),
               const SizedBox(width: 8),
@@ -356,9 +418,21 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<LinkProvider>(
+    return ShowCaseWidget(
+      builder: (context) => Consumer<LinkProvider>(
       builder: (context, provider, child) {
         final categories = [CategoryItem(id: -1, name: 'All'), ...provider.categories];
+        
+        final isAnySyncing = _isSyncing || provider.isAutoSyncing;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            if (isAnySyncing && !_syncAnimationController.isAnimating) {
+              _syncAnimationController.repeat();
+            } else if (!isAnySyncing && _syncAnimationController.isAnimating) {
+              _syncAnimationController.stop();
+            }
+          }
+        });
         
         return DefaultTabController(
           length: categories.length,
@@ -386,7 +460,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'My Links 📌',
+                              'Link Vault 🔗',
                               style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 18),
                             ),
                             Text(
@@ -422,7 +496,16 @@ class _HomeScreenState extends State<HomeScreen> {
                         });
                       },
                     )
-                  : null,
+                  : Showcase(
+                      key: _menuKey,
+                      description: 'Open the menu to create folders, change themes, and enable Cloud Backup.',
+                      child: Builder(
+                        builder: (ctx) => IconButton(
+                          icon: const Icon(Icons.menu, color: Colors.white),
+                          onPressed: () => Scaffold.of(ctx).openDrawer(),
+                        ),
+                      ),
+                    ),
               actions: [
                 if (_isSelectionMode) ...[
                   IconButton(
@@ -434,26 +517,38 @@ class _HomeScreenState extends State<HomeScreen> {
                     onPressed: _deleteSelected,
                   ),
                 ] else ...[
-                  InkWell(
-                    onTap: () {
-                      setState(() {
-                        if (_isSearching) {
-                          _isSearching = false;
-                          _searchController.clear();
-                          _searchQuery = '';
-                        } else {
-                          _isSearching = true;
-                        }
-                      });
-                    },
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(_isSearching ? Icons.close : Icons.search, color: Colors.white, size: 20),
-                          Text(_isSearching ? 'Close' : 'Search', style: GoogleFonts.poppins(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-                        ],
+                  if (!Provider.of<LinkProvider>(context).isProUser)
+                    IconButton(
+                      icon: const Icon(Icons.workspace_premium, color: Colors.amber),
+                      tooltip: 'Get Premium',
+                      onPressed: () {
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => const PremiumScreen()));
+                      },
+                    ),
+                  Showcase(
+                    key: _searchKey,
+                    description: 'Search for any saved link instantly right here.',
+                    child: InkWell(
+                      onTap: () {
+                        setState(() {
+                          if (_isSearching) {
+                            _isSearching = false;
+                            _searchController.clear();
+                            _searchQuery = '';
+                          } else {
+                            _isSearching = true;
+                          }
+                        });
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(_isSearching ? Icons.close : Icons.search, color: Colors.white, size: 20),
+                            Text(_isSearching ? 'Close' : 'Search', style: GoogleFonts.poppins(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -496,22 +591,16 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   InkWell(
-                    onTap: _isSyncing ? null : _syncToGoogleDrive,
+                    onTap: isAnySyncing ? null : _syncToGoogleDrive,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 6),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          _isSyncing
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    color: Colors.white,
-                                    strokeWidth: 2.0,
-                                  ),
-                                )
-                              : const Icon(Icons.cloud_sync, color: Colors.white, size: 20),
+                          RotationTransition(
+                            turns: _syncAnimationController,
+                            child: const Icon(Icons.sync, color: Colors.white, size: 20),
+                          ),
                           Text('Sync', style: GoogleFonts.poppins(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
                         ],
                       ),
@@ -613,7 +702,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 )) {
                                   if (context.mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text('Could not launch ${link.url}')),
+                                      SnackBar(duration: const Duration(seconds: 2), content: Text('Could not launch ${link.url}')),
                                     );
                                   }
                                 }
@@ -625,21 +714,30 @@ class _HomeScreenState extends State<HomeScreen> {
                       );
                     }).toList(),
                   ),
-            floatingActionButton: _isSelectionMode ? null : FloatingActionButton(
-              onPressed: () => _onFabPressed(context),
-              backgroundColor: Colors.blue.shade800,
-              foregroundColor: Colors.white,
-              child: const Icon(Icons.add),
+            floatingActionButton: _isSelectionMode ? null : Showcase(
+              key: _addKey,
+              description: 'Tap here to save your very first link!',
+              child: FloatingActionButton(
+                onPressed: () => _onFabPressed(context),
+                backgroundColor: Colors.blue.shade800,
+                foregroundColor: Colors.white,
+                child: const Icon(Icons.add),
+              ),
             ),
+            bottomNavigationBar: const BannerAdWidget(),
           ),
         );
       },
+      ),
     );
-
   }
 
   void _onFabPressed(BuildContext context) async {
     final provider = Provider.of<LinkProvider>(context, listen: false);
+    if (!provider.isProUser && provider.links.length >= 50) {
+      Navigator.of(context).push(MaterialPageRoute(builder: (_) => PremiumScreen()));
+      return;
+    }
     bool setupCompleted = await provider.hasCompletedSetup();
     bool hasCustomFolder = await provider.hasCustomStoragePath();
     bool isDriveSignedIn = await provider.isDriveSignedIn();
@@ -682,7 +780,7 @@ class _HomeScreenState extends State<HomeScreen> {
               if (account != null && mounted) {
                 await Provider.of<LinkProvider>(context, listen: false).setSetupCompleted(true);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Signed into Google Drive!'), backgroundColor: Color(0xFF16A34A)),
+                  const SnackBar(duration: const Duration(seconds: 2), content: Text('Signed into Google Drive!'), backgroundColor: Color(0xFF16A34A)),
                 );
               }
               if (mounted) _showAddDialog(context);
@@ -705,7 +803,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 await Provider.of<LinkProvider>(context, listen: false).setStoragePath(selectedDirectory);
                 await Provider.of<LinkProvider>(context, listen: false).setSetupCompleted(true);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Folder selected!'), backgroundColor: Color(0xFF16A34A)),
+                  const SnackBar(duration: const Duration(seconds: 2), content: Text('Folder selected!'), backgroundColor: Color(0xFF16A34A)),
                 );
               }
               if (mounted) _showAddDialog(context);
@@ -754,6 +852,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     });
 
                     try {
+                      if (!provider.isProUser && provider.links.length >= 50) {
+                        Navigator.of(context).pop(); // Close dialog
+                        Navigator.of(context).push(MaterialPageRoute(builder: (_) => PremiumScreen()));
+                        return;
+                      }
                       await provider.addLink(titleController.text, normalized, categoryId: selectedCategoryId);
 
                       bool shouldShowMilestone = false;
@@ -772,7 +875,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       if (context.mounted) {
                         Navigator.of(context).pop();
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Link saved successfully!')),
+                          const SnackBar(duration: const Duration(seconds: 2), content: Text('Link saved successfully!')),
                         );
                         if (shouldShowMilestone) {
                           _show1kMilestoneWarning(context);
@@ -781,7 +884,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     } on DuplicateLinkException catch (e) {
                       Navigator.of(context).pop();
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
+                        SnackBar(duration: const Duration(seconds: 2), 
                           content: Row(
                             children: [
                               const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 20),
@@ -935,290 +1038,44 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showManageCategoriesDialog(BuildContext context) {
-    Set<int> selectedIds = {};
-    bool isSelectionMode = false;
-
     showDialog(
       context: context,
-      builder: (context) {
-        return Consumer<LinkProvider>(
-          builder: (context, provider, child) {
-            return StatefulBuilder(
-              builder: (context, setState) {
-                final allSelected = selectedIds.length == provider.categories.length && provider.categories.isNotEmpty;
-
-                return AlertDialog(
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                  title: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Manage Categories',
-                        style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          if (!isSelectionMode) ...[
-                            TextButton.icon(
-                              icon: const Icon(Icons.add_circle, size: 18),
-                              label: Text('Add New', style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600)),
-                              style: TextButton.styleFrom(
-                                padding: EdgeInsets.zero,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                alignment: Alignment.centerLeft,
-                              ),
-                              onPressed: () => _showAddCategoryDialog(context),
-                            ),
-                            if (provider.categories.isNotEmpty)
-                              TextButton.icon(
-                                icon: const Icon(Icons.checklist, size: 18, color: Colors.blue),
-                                label: Text('Select', style: GoogleFonts.poppins(fontSize: 13, color: Colors.blue)),
-                                style: TextButton.styleFrom(
-                                  padding: EdgeInsets.zero,
-                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                ),
-                                onPressed: () {
-                                  setState(() {
-                                    isSelectionMode = true;
-                                  });
-                                },
-                              ),
-                          ] else ...[
-                            TextButton.icon(
-                              icon: Icon(allSelected ? Icons.deselect : Icons.select_all, size: 18, color: Colors.blue.shade700),
-                              label: Text(allSelected ? 'Deselect All' : 'Select All', style: GoogleFonts.poppins(fontSize: 12, color: Colors.blue.shade700)),
-                              style: TextButton.styleFrom(
-                                padding: EdgeInsets.zero,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              ),
-                              onPressed: () {
-                                setState(() {
-                                  if (allSelected) {
-                                    selectedIds.clear();
-                                  } else {
-                                    selectedIds = provider.categories.map((c) => c.id!).toSet();
-                                  }
-                                });
-                              },
-                            ),
-                            TextButton(
-                              onPressed: () {
-                                setState(() {
-                                  isSelectionMode = false;
-                                  selectedIds.clear();
-                                });
-                              },
-                              style: TextButton.styleFrom(
-                                padding: EdgeInsets.zero,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              ),
-                              child: Text('Cancel', style: GoogleFonts.poppins(fontSize: 12)),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ],
-                  ),
-                  content: SizedBox(
-                    width: double.maxFinite,
-                    child: provider.categories.isEmpty
-                        ? Padding(
-                            padding: const EdgeInsets.all(16.0),
-                            child: Text('No categories available.', style: GoogleFonts.poppins(), textAlign: TextAlign.center),
-                          )
-                        : Scrollbar(
-                            thumbVisibility: true,
-                            child: ListView.builder(
-                              shrinkWrap: true,
-                              itemCount: provider.categories.length,
-                              itemBuilder: (context, index) {
-                                final category = provider.categories[index];
-                                final isSelected = selectedIds.contains(category.id);
-                                
-                                return ListTile(
-                                  onTap: () {
-                                    if (isSelectionMode) {
-                                      setState(() {
-                                        if (isSelected) {
-                                          selectedIds.remove(category.id);
-                                        } else {
-                                          selectedIds.add(category.id!);
-                                        }
-                                      });
-                                    }
-                                  },
-                                  onLongPress: () {
-                                    if (!isSelectionMode) {
-                                      setState(() {
-                                        isSelectionMode = true;
-                                        selectedIds.add(category.id!);
-                                      });
-                                    }
-                                  },
-                                  leading: isSelectionMode
-                                      ? Checkbox(
-                                          value: isSelected,
-                                          onChanged: (val) {
-                                            setState(() {
-                                              if (val == true) {
-                                                selectedIds.add(category.id!);
-                                              } else {
-                                                selectedIds.remove(category.id);
-                                              }
-                                            });
-                                          },
-                                        )
-                                      : null,
-                                  title: Text('${category.name} (${provider.links.where((l) => l.categoryId == category.id).length})'),
-                                  trailing: isSelectionMode
-                                      ? null
-                                      : Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            IconButton(
-                                              icon: const Icon(Icons.edit, size: 20),
-                                              onPressed: () => _showEditCategoryDialog(context, category),
-                                            ),
-                                            IconButton(
-                                              icon: const Icon(Icons.delete, size: 20, color: Colors.red),
-                                              onPressed: () async {
-                                                final confirmed = await showDialog<bool>(
-                                                  context: context,
-                                                  builder: (context) => AlertDialog(
-                                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                                                    title: Text('Delete Category', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-                                                    content: Text('Are you sure you want to delete "${category.name}"? All links saved in this category will also be permanently deleted.', style: GoogleFonts.poppins()),
-                                                    actions: [
-                                                      TextButton(
-                                                        onPressed: () => Navigator.pop(context, false),
-                                                        child: const Text('Cancel'),
-                                                      ),
-                                                      ElevatedButton(
-                                                        onPressed: () => Navigator.pop(context, true),
-                                                        style: ElevatedButton.styleFrom(
-                                                          backgroundColor: Colors.redAccent,
-                                                          foregroundColor: Colors.white,
-                                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                                        ),
-                                                        child: const Text('Delete'),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                );
-                                                if (confirmed == true) {
-                                                  provider.removeCategory(category.id!);
-                                                }
-                                              },
-                                            ),
-                                          ],
-                                        ),
-                                );
-                              },
-                            ),
-                          ),
-                  ),
-                  actions: [
-                    if (isSelectionMode && selectedIds.isNotEmpty)
-                      TextButton.icon(
-                        icon: const Icon(Icons.delete_sweep, color: Colors.red),
-                        label: Text('Delete (${selectedIds.length})', style: GoogleFonts.poppins(color: Colors.red, fontWeight: FontWeight.bold)),
-                        onPressed: () async {
-                          final confirmed = await showDialog<bool>(
-                            context: context,
-                            builder: (context) => AlertDialog(
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                              title: Text('Delete Categories', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-                              content: Text('Are you sure you want to delete ${selectedIds.length} categories? All links saved in these categories will also be permanently deleted.', style: GoogleFonts.poppins()),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(context, false),
-                                  child: const Text('Cancel'),
-                                ),
-                                ElevatedButton(
-                                  onPressed: () => Navigator.pop(context, true),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.redAccent,
-                                    foregroundColor: Colors.white,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                  ),
-                                  child: const Text('Delete'),
-                                ),
-                              ],
-                            ),
-                          );
-                          if (confirmed == true) {
-                            await provider.removeMultipleCategories(selectedIds.toList());
-                            setState(() {
-                              isSelectionMode = false;
-                              selectedIds.clear();
-                            });
-                          }
-                        },
-                      ),
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('Close'),
-                    ),
-                  ],
-                );
-              },
-            );
-          },
-        );
-      },
+      builder: (_) => const ManageCategoriesDialog(),
     );
   }
 
-  void _showAddCategoryDialog(BuildContext context) {
-    final TextEditingController controller = TextEditingController();
+
+  void _show1kMilestoneWarning(BuildContext context) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add Category'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: 'Category Name'),
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            const Text('🎉', style: TextStyle(fontSize: 24)),
+            const SizedBox(width: 10),
+            Expanded(child: Text('Wow, 1,000 Links!', style: GoogleFonts.poppins(fontWeight: FontWeight.bold))),
+          ],
+        ),
+        content: Text(
+          "You've built a massive collection! To ensure you never lose your data if something happens to your device, we highly recommend enabling Google Drive Backup in the side menu.",
+          style: GoogleFonts.poppins(),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           TextButton(
-            onPressed: () {
-              if (controller.text.isNotEmpty) {
-                Provider.of<LinkProvider>(context, listen: false).addCategory(controller.text);
-                Navigator.pop(context);
-              }
-            },
-            child: const Text('Add'),
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text('Maybe Later', style: GoogleFonts.poppins(color: Colors.grey)),
           ),
-        ],
-      ),
-    );
-  }
-
-  void _showEditCategoryDialog(BuildContext context, CategoryItem category) {
-    final TextEditingController controller = TextEditingController(text: category.name);
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Edit Category'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: 'Category Name'),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          TextButton(
+          ElevatedButton(
             onPressed: () {
-              if (controller.text.isNotEmpty) {
-                Provider.of<LinkProvider>(context, listen: false).updateCategory(category.copyWith(name: controller.text));
-                Navigator.pop(context);
-              }
+              Navigator.of(ctx).pop();
+              Scaffold.of(context).openDrawer();
             },
-            child: const Text('Save'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue.shade800,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: Text('Enable Backup', style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -1445,8 +1302,12 @@ class LinkCard extends StatelessWidget {
                   label: link.isPinned ? 'Unpin' : 'Pin',
                   iconColor: Colors.blue.shade700,
                   onTap: () {
-                    Navigator.pop(ctx);
-                    Provider.of<LinkProvider>(context, listen: false).togglePin(link.id!);
+                    Navigator.of(context).pop();
+                    if (!Provider.of<LinkProvider>(context, listen: false).isProUser) {
+                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => PremiumScreen()));
+                    } else {
+                      Provider.of<LinkProvider>(context, listen: false).togglePin(link.id!);
+                    }
                   },
                 ),
                 _buildMenuItem(
@@ -1505,7 +1366,7 @@ class LinkCard extends StatelessWidget {
                     Navigator.pop(ctx);
                     Clipboard.setData(ClipboardData(text: link.url));
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Link copied to clipboard!')),
+                      const SnackBar(duration: const Duration(seconds: 2), content: Text('Link copied to clipboard!')),
                     );
                   },
                 ),
@@ -1747,43 +1608,8 @@ class LinkCard extends StatelessWidget {
     } else if (url.contains('maps.google') || url.contains('goo.gl/maps') || url.contains('google.com/maps') || url.contains('maps.app.goo.gl')) {
       return Image.asset('assets/icons/maps.png', width: 32, height: 32);
     } else {
+      return Icon(Icons.link, color: Colors.blue.shade800, size: 28);
     }
   }
 
-  void _show1kMilestoneWarning(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            const Text('🎉', style: TextStyle(fontSize: 24)),
-            const SizedBox(width: 10),
-            Expanded(child: Text('Wow, 1,000 Links!', style: GoogleFonts.poppins(fontWeight: FontWeight.bold))),
-          ],
-        ),
-        content: Text(
-          "You've built a massive collection! To ensure you never lose your data if something happens to your device, we highly recommend enabling Google Drive Backup in the side menu.",
-          style: GoogleFonts.poppins(),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: Text('Maybe Later', style: GoogleFonts.poppins(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              Scaffold.of(context).openDrawer();
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue.shade800,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-            child: Text('Enable Backup', style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
-    );
-  }
 }
