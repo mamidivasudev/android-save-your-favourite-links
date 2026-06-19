@@ -408,6 +408,7 @@ class _SaveLinkDialogState extends State<SaveLinkDialog> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     TextField(
+                      autofocus: true,
                       controller: _controller,
                       focusNode: _focusNode,
                       textInputAction: TextInputAction.next,

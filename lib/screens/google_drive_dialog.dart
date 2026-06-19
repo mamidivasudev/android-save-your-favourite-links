@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../providers/link_provider.dart';
 import '../services/google_drive_service.dart';
+import 'premium_screen.dart';
 
 class GoogleDriveDialog extends StatefulWidget {
   const GoogleDriveDialog({super.key});
@@ -25,6 +26,67 @@ class _GoogleDriveDialogState extends State<GoogleDriveDialog> {
   void initState() {
     super.initState();
     _loadState();
+  }
+
+  void _showProFeatureDialog(
+    BuildContext context, {
+    required IconData icon,
+    required Color color,
+    required String featureName,
+    required String description,
+    required String emoji,
+  }) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        contentPadding: const EdgeInsets.all(24),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(color: color.withValues(alpha: 0.1), shape: BoxShape.circle),
+              child: Icon(icon, color: color, size: 40),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              '$featureName $emoji',
+              style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              description,
+              style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey.shade600),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const PremiumScreen()));
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.amber.shade600,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: Text('Upgrade to Pro', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16)),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text('Maybe later', style: GoogleFonts.poppins(color: Colors.grey.shade600)),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _loadState() async {
@@ -85,19 +147,70 @@ class _GoogleDriveDialogState extends State<GoogleDriveDialog> {
   }
 
   Future<void> _handleRestore() async {
+    final provider = context.read<LinkProvider>();
+    final localLinkCount = provider.links.length;
+    final localCategoryCount = provider.categories.length;
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Restore from Google Drive'),
-        content: const Text(
-          'This will replace your local links and categories with the Google Drive backup. Continue?',
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 26),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Overwrite Local Data?',
+                style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'This will permanently replace your current local data with the Google Drive backup.',
+              style: GoogleFonts.poppins(fontSize: 13),
+            ),
+            if (localLinkCount > 0) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.red.shade200),
+                ),
+                child: Text(
+                  '⚠️ You have $localLinkCount local ${localLinkCount == 1 ? 'link' : 'links'} and $localCategoryCount ${localCategoryCount == 1 ? 'category' : 'categories'} that will be overwritten.',
+                  style: GoogleFonts.poppins(fontSize: 12, color: Colors.red.shade800, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
+            Text(
+              'Make sure you have backed up locally before restoring.',
+              style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey.shade600),
+            ),
+          ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text('Cancel', style: GoogleFonts.poppins()),
+          ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
-            child: const Text('Restore'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.shade700,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: Text('Yes, Restore', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -107,6 +220,7 @@ class _GoogleDriveDialogState extends State<GoogleDriveDialog> {
       await _runAction('Restoring...', () => context.read<LinkProvider>().restoreFromGoogleDrive());
     }
   }
+
 
   Future<void> _handleSync() async {
     await _runAction('Syncing...', () => context.read<LinkProvider>().syncWithGoogleDrive());
@@ -166,20 +280,52 @@ class _GoogleDriveDialogState extends State<GoogleDriveDialog> {
                   ),
                   const SizedBox(height: 16),
                   if (_isSignedIn) ...[
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text('Auto-sync', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
-                      subtitle: Text(
-                        'Sync on app start and after changes',
-                        style: GoogleFonts.poppins(fontSize: 12),
-                      ),
-                      value: _autoSyncEnabled,
-                      onChanged: _isBusy
-                          ? null
-                          : (value) async {
-                              await context.read<LinkProvider>().setGoogleDriveAutoSyncEnabled(value);
-                              setState(() => _autoSyncEnabled = value);
-                            },
+                    Consumer<LinkProvider>(
+                      builder: (context, provider, child) {
+                        return SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Row(
+                            children: [
+                              Text('Auto-sync', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+                              if (!provider.isProUser) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [Colors.amber.shade400, Colors.orange.shade500],
+                                    ),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text('PRO', style: GoogleFonts.poppins(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                                ),
+                              ],
+                            ],
+                          ),
+                          subtitle: Text(
+                            provider.isProUser ? 'Sync on app start and after changes' : 'Upgrade to unlock',
+                            style: GoogleFonts.poppins(fontSize: 12),
+                          ),
+                          value: provider.isProUser ? _autoSyncEnabled : false,
+                          onChanged: _isBusy
+                              ? null
+                              : (value) async {
+                                  if (!provider.isProUser) {
+                                    _showProFeatureDialog(
+                                      context,
+                                      icon: Icons.cloud_sync,
+                                      color: Colors.blue.shade600,
+                                      featureName: 'Auto Sync to Drive',
+                                      description: 'Never worry about losing your data!\n\nAuto Sync instantly backs up every link directly to your Google Drive in the background.',
+                                      emoji: '☁️',
+                                    );
+                                    return;
+                                  }
+                                  await context.read<LinkProvider>().setGoogleDriveAutoSyncEnabled(value);
+                                  setState(() => _autoSyncEnabled = value);
+                                },
+                        );
+                      },
                     ),
                     const SizedBox(height: 8),
                     _ActionButton(

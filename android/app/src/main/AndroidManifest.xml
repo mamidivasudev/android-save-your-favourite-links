@@ -10,7 +10,8 @@
         android:name="${applicationName}"
         android:icon="@mipmap/launcher_icon">
         
-        <!-- TODO: Replace with your REAL AdMob App ID before publishing -->
+        <!-- ⚠️ TEST ID — Replace with real AdMob App ID before Play Store upload -->
+        <!-- Steps: admob.google.com → Apps → Add App → copy App ID -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="ca-app-pub-3940256099942544~3347511713"/>

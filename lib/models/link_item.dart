@@ -38,7 +38,9 @@ class LinkItem {
       id: map['id'],
       title: map['title'],
       url: map['url'],
-      createdAt: DateTime.parse(map['createdAt']),
+      createdAt: map['createdAt'] != null
+          ? (DateTime.tryParse(map['createdAt']) ?? DateTime.now())
+          : DateTime.now(),
       categoryId: map['categoryId'],
       isPinned: map['isPinned'] == 1 || map['isPinned'] == true,
       isFavorite: map['isFavorite'] == 1 || map['isFavorite'] == true,

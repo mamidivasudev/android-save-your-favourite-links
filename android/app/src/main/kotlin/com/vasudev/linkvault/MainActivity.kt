@@ -1,4 +1,4 @@
-package com.example.link_saver
+package com.vasudev.linkvault
 
 import io.flutter.embedding.android.FlutterFragmentActivity
 

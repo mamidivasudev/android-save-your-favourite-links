@@ -415,7 +415,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       ),
     );
   }
-
   @override
   Widget build(BuildContext context) {
     return ShowCaseWidget(
@@ -517,14 +516,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     onPressed: _deleteSelected,
                   ),
                 ] else ...[
-                  if (!Provider.of<LinkProvider>(context).isProUser)
-                    IconButton(
-                      icon: const Icon(Icons.workspace_premium, color: Colors.amber),
-                      tooltip: 'Get Premium',
-                      onPressed: () {
-                        Navigator.push(context, MaterialPageRoute(builder: (_) => const PremiumScreen()));
-                      },
-                    ),
+                  // Premium icon removed from appbar
                   Showcase(
                     key: _searchKey,
                     description: 'Search for any saved link instantly right here.',
@@ -591,17 +583,37 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     ),
                   ),
                   InkWell(
-                    onTap: isAnySyncing ? null : _syncToGoogleDrive,
+                    onTap: () {
+                      if (!Provider.of<LinkProvider>(context, listen: false).isProUser) {
+                        _showProFeatureDialog(
+                          context,
+                          icon: Icons.cloud_sync,
+                          color: Colors.blue.shade600,
+                          featureName: 'Auto Sync to Drive',
+                          description: 'Never worry about losing your data!\n\nAuto Sync instantly backs up every link you add, edit, or delete directly to your Google Drive in the background.',
+                          emoji: '☁️',
+                        );
+                        return;
+                      }
+                      if (isAnySyncing) return;
+                      _syncToGoogleDrive();
+                    },
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 6),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          RotationTransition(
-                            turns: _syncAnimationController,
-                            child: const Icon(Icons.sync, color: Colors.white, size: 20),
+                          if (Provider.of<LinkProvider>(context).isProUser)
+                            RotationTransition(
+                              turns: _syncAnimationController,
+                              child: const Icon(Icons.sync, color: Colors.white, size: 20),
+                            )
+                          else
+                            const Icon(Icons.sync_disabled, color: Colors.amber, size: 20),
+                          Text(
+                            Provider.of<LinkProvider>(context).isProUser ? 'Sync' : 'Auto-Sync', 
+                            style: GoogleFonts.poppins(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)
                           ),
-                          Text('Sync', style: GoogleFonts.poppins(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
                         ],
                       ),
                     ),
@@ -734,90 +746,24 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   void _onFabPressed(BuildContext context) async {
     final provider = Provider.of<LinkProvider>(context, listen: false);
-    if (!provider.isProUser && provider.links.length >= 50) {
-      Navigator.of(context).push(MaterialPageRoute(builder: (_) => PremiumScreen()));
+    if (!provider.isProUser && provider.links.length >= 20) {
+      _showProFeatureDialog(
+        context,
+        icon: Icons.all_inclusive,
+        color: Colors.blue.shade700,
+        featureName: 'Unlimited Links',
+        description: 'You\'ve reached the 20-link free limit.\n\nUpgrade to Pro to save unlimited links — no cap, forever!',
+        emoji: '🔗',
+      );
       return;
     }
-    bool setupCompleted = await provider.hasCompletedSetup();
-    bool hasCustomFolder = await provider.hasCustomStoragePath();
-    bool isDriveSignedIn = await provider.isDriveSignedIn();
-
-    if (!setupCompleted && !hasCustomFolder && !isDriveSignedIn && mounted) {
-      _showSetupPrompt(context);
+    if (!provider.isSetupCompleted) {
+      _showSetupDialog();
     } else {
-      // If any is configured, or they already clicked "Skip", just show add dialog
       _showAddDialog(context);
     }
   }
 
-  void _showSetupPrompt(BuildContext context) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text('Setup Storage', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-        content: Text(
-          'Where would you like to save your links?\n\n'
-          '• Local Folder: Pick a visible folder on your phone.\n'
-          '• Google Drive: Sync across devices.\n'
-          '• Use Default: Save to internal hidden app storage.',
-          style: GoogleFonts.poppins(fontSize: 14),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () async {
-              Navigator.of(ctx).pop();
-              await Provider.of<LinkProvider>(context, listen: false).setSetupCompleted(true);
-              if (mounted) _showAddDialog(context);
-            },
-            child: Text('Use Default', style: GoogleFonts.poppins(color: Colors.grey.shade700)),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.of(ctx).pop();
-              final account = await _driveService.signIn();
-              if (account != null && mounted) {
-                await Provider.of<LinkProvider>(context, listen: false).setSetupCompleted(true);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(duration: const Duration(seconds: 2), content: Text('Signed into Google Drive!'), backgroundColor: Color(0xFF16A34A)),
-                );
-              }
-              if (mounted) _showAddDialog(context);
-            },
-            child: Text('Google Drive', style: GoogleFonts.poppins(color: Colors.blue.shade800)),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.of(ctx).pop();
-              
-              if (Theme.of(context).platform == TargetPlatform.android) {
-                var status = await Permission.manageExternalStorage.request();
-                if (!status.isGranted) {
-                  status = await Permission.storage.request();
-                }
-              }
-
-              String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
-              if (selectedDirectory != null && mounted) {
-                await Provider.of<LinkProvider>(context, listen: false).setStoragePath(selectedDirectory);
-                await Provider.of<LinkProvider>(context, listen: false).setSetupCompleted(true);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(duration: const Duration(seconds: 2), content: Text('Folder selected!'), backgroundColor: Color(0xFF16A34A)),
-                );
-              }
-              if (mounted) _showAddDialog(context);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue.shade800,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-            child: Text('Pick Folder', style: GoogleFonts.poppins(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-  }
 
   void _showAddDialog(BuildContext context) {
     final TextEditingController titleController = TextEditingController();
@@ -852,9 +798,16 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     });
 
                     try {
-                      if (!provider.isProUser && provider.links.length >= 50) {
+                      if (!provider.isProUser && provider.links.length >= 20) {
                         Navigator.of(context).pop(); // Close dialog
-                        Navigator.of(context).push(MaterialPageRoute(builder: (_) => PremiumScreen()));
+                        _showProFeatureDialog(
+                          context,
+                          icon: Icons.all_inclusive,
+                          color: Colors.blue.shade700,
+                          featureName: 'Unlimited Links',
+                          description: 'You\'ve reached the 20-link free limit.\n\nUpgrade to Pro to save unlimited links — no cap, forever!',
+                          emoji: '🔗',
+                        );
                         return;
                       }
                       await provider.addLink(titleController.text, normalized, categoryId: selectedCategoryId);
@@ -1083,6 +1036,112 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 }
 
+/// Shows an animated "Try It" demo dialog explaining a Pro feature.
+void _showProFeatureDialog(
+  BuildContext context, {
+  required IconData icon,
+  required Color color,
+  required String featureName,
+  required String description,
+  required String emoji,
+}) {
+  showDialog(
+    context: context,
+    barrierColor: Colors.black54,
+    builder: (ctx) => Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 40),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Animated icon badge
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [color.withValues(alpha: 0.15), color.withValues(alpha: 0.3)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                shape: BoxShape.circle,
+                border: Border.all(color: color.withValues(alpha: 0.4), width: 2),
+              ),
+              child: Icon(icon, color: color, size: 38),
+            ),
+            const SizedBox(height: 16),
+
+            // PRO badge
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.amber.shade400, Colors.orange.shade500],
+                ),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.workspace_premium, color: Colors.white, size: 14),
+                  const SizedBox(width: 4),
+                  Text('PRO FEATURE', style: GoogleFonts.poppins(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // Feature name
+            Text(
+              '$emoji $featureName',
+              style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 10),
+
+            // Description
+            Text(
+              description,
+              style: GoogleFonts.poppins(fontSize: 13.5, color: Colors.grey.shade600, height: 1.5),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+
+            // Upgrade button
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.of(ctx).pop();
+                  Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PremiumScreen()));
+                },
+                icon: const Icon(Icons.workspace_premium, size: 18),
+                label: Text('Upgrade to Pro — ₹299', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 14)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.amber.shade600,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  elevation: 2,
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            // Maybe later
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text('Maybe Later', style: GoogleFonts.poppins(color: Colors.grey.shade500, fontSize: 13)),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 class LinkCard extends StatelessWidget {
   final LinkItem link;
   final bool isSelected;
@@ -1261,6 +1320,26 @@ class LinkCard extends StatelessWidget {
     );
   }
 
+  bool _checkLocked(BuildContext context) {
+    if (link.isLocked) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(children: [
+            const Icon(Icons.lock, color: Colors.white, size: 18),
+            const SizedBox(width: 8),
+            Expanded(child: Text('Unlock the link first to perform this action!', style: GoogleFonts.poppins(fontSize: 13))),
+          ]),
+          backgroundColor: Colors.red.shade700,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      return true;
+    }
+    return false;
+  }
+
   void _showMenuBottomSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
@@ -1293,6 +1372,7 @@ class LinkCard extends StatelessWidget {
                   iconColor: Colors.blue.shade700,
                   onTap: () {
                     Navigator.pop(ctx);
+                    if (_checkLocked(context)) return;
                     _showEditDialog(context);
                   },
                 ),
@@ -1301,10 +1381,19 @@ class LinkCard extends StatelessWidget {
                   icon: Icons.push_pin,
                   label: link.isPinned ? 'Unpin' : 'Pin',
                   iconColor: Colors.blue.shade700,
+                  isProFeature: true,
+                  isProUser: Provider.of<LinkProvider>(context, listen: false).isProUser,
                   onTap: () {
                     Navigator.of(context).pop();
                     if (!Provider.of<LinkProvider>(context, listen: false).isProUser) {
-                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => PremiumScreen()));
+                      _showProFeatureDialog(
+                        context,
+                        icon: Icons.push_pin,
+                        color: Colors.blue.shade700,
+                        featureName: 'Pin to Top',
+                        description: 'Pin your most important links so they always appear at the very top of your list.\n\nNever lose track of what matters most!',
+                        emoji: '📌',
+                      );
                     } else {
                       Provider.of<LinkProvider>(context, listen: false).togglePin(link.id!);
                     }
@@ -1315,8 +1404,21 @@ class LinkCard extends StatelessWidget {
                   icon: link.isLocked ? Icons.lock_open : Icons.lock,
                   label: link.isLocked ? 'Unlock' : 'Lock',
                   iconColor: link.isLocked ? Colors.green : Colors.red,
+                  isProFeature: true,
+                  isProUser: Provider.of<LinkProvider>(context, listen: false).isProUser,
                   onTap: () async {
                     Navigator.pop(ctx);
+                    if (!Provider.of<LinkProvider>(context, listen: false).isProUser) {
+                      _showProFeatureDialog(
+                        context,
+                        icon: Icons.lock,
+                        color: Colors.red.shade600,
+                        featureName: 'Lock Individual Links',
+                        description: 'Keep your private links hidden and secure!\n\nPro users can lock any link so it can only be opened with your fingerprint or Face ID. Locked links cannot be edited, shared, moved, or deleted by anyone else!',
+                        emoji: '🔒',
+                      );
+                      return;
+                    }
                     if (link.isLocked) {
                       final provider = Provider.of<LinkProvider>(context, listen: false);
                       provider.setAuthenticating(true);
@@ -1344,6 +1446,7 @@ class LinkCard extends StatelessWidget {
                   iconColor: Colors.blue.shade700,
                   onTap: () {
                     Navigator.pop(ctx);
+                    if (_checkLocked(context)) return;
                     Share.share('${link.title}\n${link.url}');
                   },
                 ),
@@ -1354,6 +1457,7 @@ class LinkCard extends StatelessWidget {
                   iconColor: Colors.blue.shade700,
                   onTap: () {
                     Navigator.pop(ctx);
+                    if (_checkLocked(context)) return;
                     _showEditDialog(context);
                   },
                 ),
@@ -1364,6 +1468,7 @@ class LinkCard extends StatelessWidget {
                   iconColor: Colors.blue.shade700,
                   onTap: () {
                     Navigator.pop(ctx);
+                    if (_checkLocked(context)) return;
                     Clipboard.setData(ClipboardData(text: link.url));
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(duration: const Duration(seconds: 2), content: Text('Link copied to clipboard!')),
@@ -1378,6 +1483,7 @@ class LinkCard extends StatelessWidget {
                   textColor: Colors.red,
                   onTap: () {
                     Navigator.pop(ctx);
+                    if (_checkLocked(context)) return;
                     _showDeleteConfirmationDialog(context);
                   },
                 ),
@@ -1397,16 +1503,43 @@ class LinkCard extends StatelessWidget {
     required VoidCallback onTap,
     Color? iconColor,
     Color? textColor,
+    bool isProFeature = false,
+    bool isProUser = false,
   }) {
     return ListTile(
-      leading: Icon(icon, color: iconColor),
-      title: Text(
-        label,
-        style: GoogleFonts.poppins(
-          fontWeight: FontWeight.w500,
-          color: textColor ?? Theme.of(context).textTheme.bodyLarge?.color,
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: (iconColor ?? Theme.of(context).primaryColor).withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(10),
         ),
+        child: Icon(icon, color: iconColor),
       ),
+      title: Row(
+        children: [
+          Text(
+            label,
+            style: GoogleFonts.poppins(
+              fontWeight: FontWeight.w500,
+              color: textColor ?? Theme.of(context).textTheme.bodyLarge?.color,
+            ),
+          ),
+          if (isProFeature && !isProUser) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.amber.shade400, Colors.orange.shade500],
+                ),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text('PRO', style: GoogleFonts.poppins(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ],
+      ),
+      trailing: (isProFeature && !isProUser) ? Icon(Icons.lock_outline, size: 16, color: Colors.amber.shade600) : null,
       onTap: onTap,
     );
   }

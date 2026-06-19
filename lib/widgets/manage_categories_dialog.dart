@@ -80,13 +80,19 @@ class _ManageCategoriesDialogState extends State<ManageCategoriesDialog> {
   Future<void> _handleDelete(LinkProvider provider) async {
     if (_selectedIds.isEmpty) return;
 
+    final affectedLinkCount = provider.getLinkCountForCategories(_selectedIds);
+    final categoryWord = _selectedIds.length == 1 ? 'category' : 'categories';
+    final linkInfo = affectedLinkCount > 0
+        ? '\n\n$affectedLinkCount ${affectedLinkCount == 1 ? 'link' : 'links'} in ${_selectedIds.length == 1 ? 'this category' : 'these categories'} will be moved to "Others" so you don\'t lose any data.'
+        : '';
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text('Delete Categories', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+        title: Text('Delete ${_selectedIds.length} ${_selectedIds.length == 1 ? 'Category' : 'Categories'}?', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
         content: Text(
-          'Are you sure you want to delete ${_selectedIds.length} categories? All links saved in these categories will also be permanently deleted.',
+          'Are you sure you want to delete ${_selectedIds.length} $categoryWord?$linkInfo',
           style: GoogleFonts.poppins(),
         ),
         actions: [
@@ -115,6 +121,7 @@ class _ManageCategoriesDialogState extends State<ManageCategoriesDialog> {
       });
     }
   }
+
 
   Future<void> _handleUpdate(LinkProvider provider, List<CategoryItem> categories) async {
     bool hasChanges = false;

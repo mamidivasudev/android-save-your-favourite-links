@@ -30,13 +30,18 @@ class LinkProvider with ChangeNotifier {
   StreamSubscription? _connectivitySubscription;
 
   bool _isProUser = false;
+
   bool get isProUser => _isProUser;
+  bool get hasBoughtPro => _isProUser;
 
   List<LinkItem> get links => _links;
   List<CategoryItem> get categories => _categories;
 
   String? _storageError;
   String? get storageError => _storageError;
+
+  bool _isSetupCompleted = false;
+  bool get isSetupCompleted => _isSetupCompleted;
 
   void clearStorageError() {
     if (_storageError != null) {
@@ -103,13 +108,7 @@ class LinkProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // DEBUG ONLY: Remove Pro
-  Future<void> removePro() async {
-    _isProUser = false;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('isProUser', false);
-    notifyListeners();
-  }
+
 
   bool _hasCustomStoragePathSync = false;
   bool get hasCustomStoragePathSync => _hasCustomStoragePathSync;
@@ -117,8 +116,8 @@ class LinkProvider with ChangeNotifier {
   bool _isAutoSyncing = false;
   bool get isAutoSyncing => _isAutoSyncing;
 
-  Future<void> _autoSyncToDrive({bool showSuccessMessage = false}) async {
-    if (!_isProUser) return; // Auto-sync is a Pro feature
+  Future<void> _autoSyncToDrive({bool showSuccessMessage = true}) async {
+    if (!isProUser) return; // Auto-sync is a Pro feature
 
     _isAutoSyncing = true;
     notifyListeners();
@@ -150,7 +149,17 @@ class LinkProvider with ChangeNotifier {
           
           if (showSuccessMessage && scaffoldMessengerKey.currentState != null) {
             scaffoldMessengerKey.currentState!.showSnackBar(
-              const SnackBar(duration: const Duration(seconds: 2), content: Text('Pending changes synced to Drive successfully!')),
+              SnackBar(
+                content: Row(children: [
+                  const Icon(Icons.cloud_done, color: Colors.white, size: 18),
+                  const SizedBox(width: 8),
+                  const Expanded(child: Text('Auto-synced to Drive!', style: TextStyle(fontSize: 13, fontFamily: 'Poppins'))),
+                ]),
+                backgroundColor: const Color(0xFF16A34A),
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                duration: const Duration(seconds: 2),
+              ),
             );
           }
         }
@@ -177,6 +186,7 @@ class LinkProvider with ChangeNotifier {
     _isAppLockEnabled = prefs.getBool('isAppLockEnabled') ?? false;
     _hasPendingSync = prefs.getBool('hasPendingSync') ?? false;
     _isProUser = prefs.getBool('isProUser') ?? false;
+    _isSetupCompleted = prefs.getBool('setup_completed') ?? false;
 
     final customPath = await _storageService.getCustomPath();
     _hasCustomStoragePathSync = customPath != null && customPath.isNotEmpty;
@@ -208,8 +218,10 @@ class LinkProvider with ChangeNotifier {
   }
 
   Future<void> setSetupCompleted(bool value) async {
+    _isSetupCompleted = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('setup_completed', value);
+    notifyListeners();
   }
 
   Future<bool> hasCustomStoragePath() async {
@@ -397,11 +409,36 @@ class LinkProvider with ChangeNotifier {
     }
   }
 
+
+  /// Returns the number of links that belong to any of the given category [ids].
+  int getLinkCountForCategories(Iterable<int> ids) {
+    return _links.where((l) => l.categoryId != null && ids.contains(l.categoryId)).length;
+  }
+
+  /// Returns the id of the "Others" category, or null if it doesn't exist.
+  int? _getOthersCategoryId() {
+    try {
+      return _categories
+          .firstWhere((c) => c.name.toLowerCase() == 'others')
+          .id;
+    } catch (_) {
+      return _categories.isNotEmpty ? _categories.last.id : null;
+    }
+  }
+
   Future<void> removeCategory(int id) async {
     _categories.removeWhere((c) => c.id == id);
-    // Delete all links associated with this category
-    _links.removeWhere((link) => link.categoryId == id);
-    
+
+    // Reassign links that belonged to the deleted category to "Others"
+    // instead of deleting them — prevents silent data loss.
+    final fallbackId = _getOthersCategoryId();
+    _links = _links.map((link) {
+      if (link.categoryId == id) {
+        return link.copyWith(categoryId: fallbackId);
+      }
+      return link;
+    }).toList();
+
     await _safeSave(() => _storageService.saveData(links: _links, categories: _categories));
     notifyListeners();
     _autoSyncToDrive();
@@ -409,9 +446,16 @@ class LinkProvider with ChangeNotifier {
 
   Future<void> removeMultipleCategories(List<int> ids) async {
     _categories.removeWhere((c) => ids.contains(c.id));
-    // Delete all links associated with these categories
-    _links.removeWhere((link) => ids.contains(link.categoryId));
-    
+
+    // Reassign links in deleted categories to "Others" instead of deleting them.
+    final fallbackId = _getOthersCategoryId();
+    _links = _links.map((link) {
+      if (link.categoryId != null && ids.contains(link.categoryId)) {
+        return link.copyWith(categoryId: fallbackId);
+      }
+      return link;
+    }).toList();
+
     await _safeSave(() => _storageService.saveData(links: _links, categories: _categories));
     notifyListeners();
     _autoSyncToDrive();

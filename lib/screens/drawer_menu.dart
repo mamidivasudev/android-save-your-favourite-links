@@ -43,6 +43,102 @@ class _AppDrawerState extends State<AppDrawer> {
     });
   }
 
+  // ─── Pro Feature Demo Dialog ─────────────────────────────────────────────────
+
+  void _showProFeatureDialog(
+    BuildContext context, {
+    required IconData icon,
+    required Color color,
+    required String featureName,
+    required String description,
+    required String emoji,
+  }) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black54,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 40),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [color.withValues(alpha: 0.15), color.withValues(alpha: 0.3)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: color.withValues(alpha: 0.4), width: 2),
+                ),
+                child: Icon(icon, color: color, size: 38),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.amber.shade400, Colors.orange.shade500],
+                  ),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.workspace_premium, color: Colors.white, size: 14),
+                    const SizedBox(width: 4),
+                    Text('PRO FEATURE', style: GoogleFonts.poppins(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '$emoji $featureName',
+                style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 10),
+              Text(
+                description,
+                style: GoogleFonts.poppins(fontSize: 13.5, color: Colors.grey.shade600, height: 1.5),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.of(ctx).pop();
+                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PremiumScreen()));
+                  },
+                  icon: const Icon(Icons.workspace_premium, size: 18),
+                  label: Text('Upgrade to Pro — ₹299', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 14)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.amber.shade600,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    elevation: 2,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: Text('Maybe Later', style: GoogleFonts.poppins(color: Colors.grey.shade500, fontSize: 13)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   // ─── Auth Helpers ────────────────────────────────────────────────────────────
 
   Future<void> _handleSignIn() async {
@@ -354,38 +450,70 @@ class _AppDrawerState extends State<AppDrawer> {
                   Consumer<LinkProvider>(
                     builder: (context, provider, child) {
                       if (provider.isProUser) return const SizedBox.shrink();
-                      return Padding(
-                        padding: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
-                        child: InkWell(
-                          onTap: () {
-                            Navigator.of(context).pop();
-                            Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PremiumScreen()));
-                          },
+                      return Container(
+                        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [Colors.amber.shade400, Colors.orange.shade600],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
                           borderRadius: BorderRadius.circular(16),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(colors: [Colors.amber.shade400, Colors.orange.shade500]),
-                              borderRadius: BorderRadius.circular(16),
-                              boxShadow: [
-                                BoxShadow(color: Colors.orange.withValues(alpha: 0.3), blurRadius: 8, offset: const Offset(0, 4)),
-                              ],
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.orange.withValues(alpha: 0.3),
+                              blurRadius: 8,
+                              offset: const Offset(0, 4),
                             ),
-                            child: Row(
-                              children: [
-                                const Icon(Icons.workspace_premium, color: Colors.white, size: 28),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text('Get Lifetime Pro', style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
-                                      Text('Unlock all features', style: GoogleFonts.poppins(color: Colors.white70, fontSize: 12)),
-                                    ],
+                          ],
+                        ),
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(16),
+                            onTap: () {
+                              Navigator.of(context).pop();
+                              Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PremiumScreen()));
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.all(16.0),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(alpha: 0.2),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(Icons.workspace_premium, color: Colors.white, size: 28),
                                   ),
-                                ),
-                                const Icon(Icons.chevron_right, color: Colors.white),
-                              ],
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Upgrade to Pro',
+                                          style: GoogleFonts.poppins(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'Unlock all premium features',
+                                          style: GoogleFonts.poppins(
+                                            color: Colors.white.withValues(alpha: 0.9),
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const Icon(Icons.arrow_forward_ios, color: Colors.white, size: 16),
+                                ],
+                              ),
                             ),
                           ),
                         ),
@@ -429,7 +557,7 @@ class _AppDrawerState extends State<AppDrawer> {
                         context,
                         icon: Icons.cloud_upload_outlined,
                         iconColor: Colors.blue.shade600,
-                        title: 'Backup',
+                        title: 'Backup / Sync',
                         subtitle: 'Save to Drive',
                         onTap: () => _handleBackup(context),
                       ),
@@ -498,29 +626,84 @@ class _AppDrawerState extends State<AppDrawer> {
                       children: [
                         SwitchListTile(
                           dense: true,
-                          title: Text(
-                            'Show Link Previews',
-                            style: GoogleFonts.poppins(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
-                            ),
+                          title: Row(
+                            children: [
+                              Text(
+                                'Link Previews',
+                                style: GoogleFonts.poppins(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              if (!provider.isProUser) ...
+                              [
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [Colors.amber.shade400, Colors.orange.shade500],
+                                    ),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text('PRO', style: GoogleFonts.poppins(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                                ),
+                              ],
+                            ],
                           ),
-                          value: provider.showLinkPreviews,
+                          subtitle: Text(
+                            provider.isProUser ? 'Show website thumbnail cards' : 'Upgrade to unlock',
+                            style: GoogleFonts.poppins(fontSize: 11),
+                          ),
+                          value: provider.isProUser ? provider.showLinkPreviews : false,
                           onChanged: (val) {
+                            if (!provider.isProUser) {
+                              Navigator.of(context).pop();
+                              _showProFeatureDialog(
+                                context,
+                                icon: Icons.image_outlined,
+                                color: Colors.purple.shade600,
+                                featureName: 'Link Previews',
+                                description: 'See beautiful website thumbnail previews for every saved link.\n\nMake your link list visual and easy to recognize at a glance!',
+                                emoji: '🖼️',
+                              );
+                              return;
+                            }
                             provider.toggleLinkPreviews();
                           },
                           activeColor: Colors.blue.shade600,
                           contentPadding: const EdgeInsets.symmetric(horizontal: 24),
-                          secondary: Icon(Icons.image_outlined, color: Colors.indigo.shade400),
+                          secondary: Icon(
+                            provider.isProUser ? Icons.image_outlined : Icons.lock_outline,
+                            color: provider.isProUser ? Colors.indigo.shade400 : Colors.amber.shade600,
+                          ),
                         ),
                         SwitchListTile(
                           dense: true,
-                          title: Text(
-                            'App Lock',
-                            style: GoogleFonts.poppins(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
-                            ),
+                          title: Row(
+                            children: [
+                              Text(
+                                'App Lock',
+                                style: GoogleFonts.poppins(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              if (!provider.isProUser) ...
+                              [
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [Colors.amber.shade400, Colors.orange.shade500],
+                                    ),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text('PRO', style: GoogleFonts.poppins(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                                ),
+                              ],
+                            ],
                           ),
                           subtitle: Text(
                             'Require fingerprint on start',
@@ -530,7 +713,14 @@ class _AppDrawerState extends State<AppDrawer> {
                           onChanged: (val) async {
                             if (!provider.isProUser) {
                               Navigator.of(context).pop();
-                              Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PremiumScreen()));
+                              _showProFeatureDialog(
+                                context,
+                                icon: Icons.security,
+                                color: Colors.indigo.shade600,
+                                featureName: 'App Lock',
+                                description: 'Secure all your saved links with fingerprint or face authentication.\n\nNo one else can open your app without your permission!',
+                                emoji: '🔐',
+                              );
                               return;
                             }
                             try {
@@ -573,6 +763,59 @@ class _AppDrawerState extends State<AppDrawer> {
                     widget.onStorageFolderTap?.call();
                   },
                 ),
+                if (Provider.of<LinkProvider>(context).hasCustomStoragePathSync)
+                  _buildBottomTile(
+                    icon: Icons.folder_off_outlined,
+                    iconColor: Colors.red.shade400,
+                    title: 'Remove Storage Folder',
+                    titleColor: Colors.red.shade400,
+                    onTap: () async {
+                      Navigator.of(context).pop(); // Close drawer
+                      
+                      final confirmed = await showDialog<bool>(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                          title: Text('Remove Folder?', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+                          content: Text('Are you sure you want to revert to the default internal storage? Your custom folder will no longer be used.', style: GoogleFonts.poppins(fontSize: 14)),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(ctx, false),
+                              child: Text('Cancel', style: GoogleFonts.poppins()),
+                            ),
+                            ElevatedButton(
+                              onPressed: () => Navigator.pop(ctx, true),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red.shade500,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              child: Text('Yes, Remove', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+                            ),
+                          ],
+                        ),
+                      );
+
+                      if (confirmed == true && context.mounted) {
+                        await Provider.of<LinkProvider>(context, listen: false).setStoragePath("");
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Row(children: [
+                                const Icon(Icons.check_circle, color: Colors.white, size: 20),
+                                const SizedBox(width: 8),
+                                Expanded(child: Text('Reverted to default app storage!', style: GoogleFonts.poppins(fontSize: 13))),
+                              ]),
+                              backgroundColor: const Color(0xFF16A34A),
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              duration: const Duration(seconds: 2),
+                            ),
+                          );
+                        }
+                      }
+                    },
+                  ),
                 if (_currentUser != null)
                   _buildBottomTile(
                     icon: Icons.logout,
@@ -581,25 +824,7 @@ class _AppDrawerState extends State<AppDrawer> {
                     titleColor: Colors.red.shade400,
                     onTap: _handleSignOut,
                   ),
-                const Divider(),
-                Consumer<LinkProvider>(
-                  builder: (context, provider, child) {
-                    if (!provider.isProUser) return const SizedBox.shrink();
-                    return _buildBottomTile(
-                      icon: Icons.bug_report,
-                      iconColor: Colors.deepPurple,
-                      title: 'DEBUG: Disable Pro',
-                      titleColor: Colors.deepPurple,
-                      onTap: () {
-                        provider.removePro();
-                        Navigator.of(context).pop();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(duration: const Duration(seconds: 2), content: Text('Pro status removed for testing.')),
-                        );
-                      },
-                    );
-                  },
-                ),
+
               ],
             ),
             ),

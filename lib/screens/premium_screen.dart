@@ -70,12 +70,17 @@ class PremiumScreen extends StatelessWidget {
             _buildFeatureRow(
               Icons.all_inclusive,
               'Unlimited Links',
-              'Break the 50 link limit and save as many links as you want forever.',
+              'Break the 20 link limit and save as many links as you want forever.',
             ),
             _buildFeatureRow(
               Icons.block,
               'Ad-Free Experience',
               'Enjoy a completely clean interface with absolutely no banner ads.',
+            ),
+            _buildFeatureRow(
+              Icons.image_outlined,
+              'Link Previews',
+              'See beautiful website thumbnail previews for every saved link at a glance.',
             ),
             _buildFeatureRow(
               Icons.cloud_sync,
@@ -91,6 +96,11 @@ class PremiumScreen extends StatelessWidget {
               Icons.push_pin,
               'Pin to Top',
               'Pin your most important links to the absolute top of the list.',
+            ),
+            _buildFeatureRow(
+              Icons.lock,
+              'Lock Individual Links',
+              'Lock specific private links so they cannot be opened, edited, or shared without your fingerprint.',
             ),
             const SizedBox(height: 24),
             SizedBox(
