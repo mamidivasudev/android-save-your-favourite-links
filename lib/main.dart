@@ -17,15 +17,15 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await MobileAds.instance.initialize();
+  MobileAds.instance.initialize().catchError((e) {
+    debugPrint('AdMob Initialization failed: $e');
+  });
   
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider(
-          create: (context) => LinkProvider()
-            ..fetchCategories()
-            ..fetchLinks(),
+          create: (context) => LinkProvider(),
         ),
         ChangeNotifierProvider(create: (context) => ThemeProvider()),
       ],
@@ -88,11 +88,13 @@ class MainWrapper extends StatefulWidget {
 
 class _MainWrapperState extends State<MainWrapper> with WidgetsBindingObserver {
   late StreamSubscription _intentDataStreamSubscription;
-  String? _sharedText;
   bool _isAuthenticated = false;
   bool _isCheckingAuth = true;
   bool _hasSeenOnboarding = false;
   bool _wasPaused = false;
+  // Pending shared URL — buffered when share intent arrives before the app is ready
+  String? _pendingSharedUrl;
+  bool _pendingCloseAppOnSave = false;
 
   @override
   void initState() {
@@ -105,12 +107,17 @@ class _MainWrapperState extends State<MainWrapper> with WidgetsBindingObserver {
     _intentDataStreamSubscription = ReceiveSharingIntent.instance.getMediaStream().listen((List<SharedMediaFile> value) {
       for (var file in value) {
         if (file.type == SharedMediaType.text || file.type == SharedMediaType.url) {
-          setState(() {
-            _sharedText = file.path;
-            if (_sharedText != null) {
-              _showSaveDialog(_sharedText!);
-            }
-          });
+          if (!mounted) return;
+          final content = file.path;
+          // Guard: only show dialog when app is fully ready (auth + onboarding done)
+          if (!_isCheckingAuth && _hasSeenOnboarding && _isAuthenticated) {
+            _showSaveDialog(_extractUrl(content));
+          } else {
+            setState(() {
+              _pendingSharedUrl = content;
+              _pendingCloseAppOnSave = false;
+            });
+          }
         }
       }
     }, onError: (err) {
@@ -119,14 +126,18 @@ class _MainWrapperState extends State<MainWrapper> with WidgetsBindingObserver {
 
     // For sharing or opening urls/text coming from outside the app while the app is closed
     ReceiveSharingIntent.instance.getInitialMedia().then((List<SharedMediaFile> value) {
+      if (!mounted) return;
       for (var file in value) {
         if (file.type == SharedMediaType.text || file.type == SharedMediaType.url) {
-          setState(() {
-            _sharedText = file.path;
-            if (_sharedText != null) {
-              _showSaveDialog(_sharedText!, closeAppOnSave: true);
-            }
-          });
+          final content = file.path;
+          if (!_isCheckingAuth && _hasSeenOnboarding && _isAuthenticated) {
+            _showSaveDialog(_extractUrl(content), closeAppOnSave: true);
+          } else {
+            setState(() {
+              _pendingSharedUrl = content;
+              _pendingCloseAppOnSave = true;
+            });
+          }
         }
       }
     });
@@ -146,6 +157,7 @@ class _MainWrapperState extends State<MainWrapper> with WidgetsBindingObserver {
         setState(() {
           _isAuthenticated = true;
         });
+        _tryShowPendingDialog();
       }
     } catch (e) {
       if (mounted) {
@@ -174,6 +186,7 @@ class _MainWrapperState extends State<MainWrapper> with WidgetsBindingObserver {
         _isAuthenticated = true;
         _isCheckingAuth = false;
       });
+      _tryShowPendingDialog();
     }
   }
 
@@ -183,6 +196,23 @@ class _MainWrapperState extends State<MainWrapper> with WidgetsBindingObserver {
     setState(() {
       _hasSeenOnboarding = true;
     });
+    _tryShowPendingDialog();
+  }
+
+  /// Shows any pending shared URL once the app is fully ready (auth + onboarding complete).
+  void _tryShowPendingDialog() {
+    if (_pendingSharedUrl != null &&
+        !_isCheckingAuth &&
+        _hasSeenOnboarding &&
+        _isAuthenticated) {
+      final url = _extractUrl(_pendingSharedUrl!);
+      final close = _pendingCloseAppOnSave;
+      setState(() {
+        _pendingSharedUrl = null;
+        _pendingCloseAppOnSave = false;
+      });
+      _showSaveDialog(url, closeAppOnSave: close);
+    }
   }
 
   @override
@@ -314,9 +344,10 @@ class _SaveLinkDialogState extends State<SaveLinkDialog> {
     final provider = Provider.of<LinkProvider>(context, listen: false);
     _selectedCategoryId = provider.getAutoCategoryId(widget.url);
 
-    Future.delayed(const Duration(milliseconds: 300), () {
+    Future.delayed(const Duration(milliseconds: 500), () {
       if (mounted) {
-        _focusNode.requestFocus();
+        FocusScope.of(context).requestFocus(_focusNode);
+        SystemChannels.textInput.invokeMethod('TextInput.show');
         if (_controller.text.isNotEmpty) {
           _controller.selection = TextSelection(baseOffset: 0, extentOffset: _controller.text.length);
         }
@@ -388,6 +419,10 @@ class _SaveLinkDialogState extends State<SaveLinkDialog> {
   Widget build(BuildContext context) {
     return Consumer<LinkProvider>(
       builder: (context, provider, child) {
+        // If categories were empty on init (app just opened), it returns 0. Re-check now that they've loaded.
+        if (_selectedCategoryId == 0 && provider.categories.isNotEmpty) {
+          _selectedCategoryId = provider.getAutoCategoryId(_urlController.text);
+        }
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(

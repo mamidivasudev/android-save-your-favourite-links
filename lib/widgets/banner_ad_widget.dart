@@ -16,10 +16,9 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
   bool _isLoaded = false;
 
   // ─── AdMob Ad Unit IDs ────────────────────────────────────────────────────
-  // ⚠️ TEST IDs — Replace with real IDs from admob.google.com before publishing
   final String _adUnitId = Platform.isAndroid
-      ? 'ca-app-pub-3940256099942544/6300978111'   // ← Test ID (replace before publish)
-      : 'ca-app-pub-3940256099942544/2934735716';  // ← Test ID (replace before publish)
+      ? 'ca-app-pub-4244050676400093/6782106745'   // Real Android Banner ID
+      : 'ca-app-pub-3940256099942544/2934735716';  // iOS Test ID (if needed later)
 
   @override
   void initState() {

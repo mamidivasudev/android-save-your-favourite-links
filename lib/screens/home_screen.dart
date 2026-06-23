@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter/services.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:showcaseview/showcaseview.dart';
@@ -35,6 +34,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   final Set<int> _selectedLinkIds = {};
   bool _isSyncing = false;
   final GoogleDriveService _driveService = GoogleDriveService();
+  // Key used to open the drawer from dialogs without relying on BuildContext
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   
   SortOption _currentSort = SortOption.newest;
 
@@ -96,12 +97,26 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           children: [
             Text('Where would you like to save your links?', style: GoogleFonts.poppins(fontSize: 14)),
             const SizedBox(height: 16),
-            Text('• Local Folder: Pick a visible folder on your phone.\n• Google Drive: Sync across devices.', style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey.shade700)),
+            Text('• Google Drive: Sync across devices.', style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey.shade700)),
           ],
         ),
         actionsPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         actions: [
           TextButton(
+            onPressed: () async {
+              final provider = Provider.of<LinkProvider>(context, listen: false);
+              Navigator.pop(ctx);
+              await provider.setSetupCompleted(true);
+              _checkAndStartShowcase();
+            },
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Skip', style: GoogleFonts.poppins(color: Colors.grey.shade600)),
+              ]
+            ),
+          ),
+          ElevatedButton(
             onPressed: () async {
               final provider = Provider.of<LinkProvider>(context, listen: false);
               Navigator.pop(ctx);
@@ -114,100 +129,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 }
               }
             },
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('Google Drive', style: GoogleFonts.poppins(color: Colors.blue.shade600)),
-              ]
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              
-              if (Theme.of(context).platform == TargetPlatform.android) {
-                var status = await Permission.manageExternalStorage.request();
-                if (!status.isGranted) {
-                  status = await Permission.storage.request();
-                }
-              }
-
-              String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
-              if (selectedDirectory != null && mounted) {
-                final provider = Provider.of<LinkProvider>(context, listen: false);
-                await provider.setStoragePath(selectedDirectory);
-                await provider.setSetupCompleted(true);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(duration: const Duration(seconds: 2), 
-                    content: Text('Storage folder updated!', style: GoogleFonts.poppins(fontSize: 13)),
-                    backgroundColor: const Color(0xFF16A34A),
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                );
-                _checkAndStartShowcase();
-              }
-            },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.blue.shade700,
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
-            child: Text('Pick Folder', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _showFolderPicker() async {
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text('Change Storage Folder', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-        content: Text(
-          'Choose a custom folder to save your links data.',
-          style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey.shade700),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: Text('Cancel', style: GoogleFonts.poppins()),
-          ),
-          ElevatedButton.icon(
-            onPressed: () async {
-              Navigator.of(ctx).pop(); // Close dialog first
-              
-              if (Theme.of(context).platform == TargetPlatform.android) {
-                var status = await Permission.manageExternalStorage.request();
-                if (!status.isGranted) {
-                  status = await Permission.storage.request();
-                }
-              }
-
-              String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
-              if (selectedDirectory != null && mounted) {
-                await Provider.of<LinkProvider>(context, listen: false)
-                    .setStoragePath(selectedDirectory);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(duration: const Duration(seconds: 2), 
-                    content: Text('Storage folder updated!', style: GoogleFonts.poppins(fontSize: 13)),
-                    backgroundColor: const Color(0xFF16A34A),
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                );
-              }
-            },
-            icon: const Icon(Icons.folder_open),
-            label: Text('Pick Folder', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue.shade800,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
+            child: Text('Set Up Drive', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -418,7 +345,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   Widget build(BuildContext context) {
     return ShowCaseWidget(
-      builder: (context) => Consumer<LinkProvider>(
+      builder: (context) => Selector<LinkProvider, int>(
+        // Only rebuilds DefaultTabController when the NUMBER of categories changes,
+        // NOT on every link add/remove. This prevents the active tab from resetting.
+        selector: (_, p) => p.categories.length + 1,
+        builder: (context, tabCount, _) => DefaultTabController(
+          length: tabCount,
+          child: Consumer<LinkProvider>(
       builder: (context, provider, child) {
         final categories = [CategoryItem(id: -1, name: 'All'), ...provider.categories];
         
@@ -433,9 +366,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           }
         });
         
-        return DefaultTabController(
-          length: categories.length,
-          child: Scaffold(
+        return Scaffold(
+          key: _scaffoldKey,
             appBar: AppBar(
               title: _isSelectionMode
                   ? Text('${_selectedLinkIds.length} selected')
@@ -640,7 +572,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             ),
             drawer: AppDrawer(
               onCategoriesTap: () => _showManageCategoriesDialog(context),
-              onStorageFolderTap: _showFolderPicker,
             ),
             body: provider.links.isEmpty
                 ? _buildEmptyState()
@@ -737,22 +668,23 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               ),
             ),
             bottomNavigationBar: const BannerAdWidget(),
+          );
+        },
           ),
-        );
-      },
+        ),
       ),
     );
   }
 
   void _onFabPressed(BuildContext context) async {
     final provider = Provider.of<LinkProvider>(context, listen: false);
-    if (!provider.isProUser && provider.links.length >= 20) {
+    if (!provider.isProUser && provider.links.length >= 50) {
       _showProFeatureDialog(
         context,
         icon: Icons.all_inclusive,
         color: Colors.blue.shade700,
         featureName: 'Unlimited Links',
-        description: 'You\'ve reached the 20-link free limit.\n\nUpgrade to Pro to save unlimited links — no cap, forever!',
+        description: 'You\'ve reached the 50-link free limit.\n\nUpgrade to Pro to save unlimited links — no cap, forever!',
         emoji: '🔗',
       );
       return;
@@ -798,14 +730,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     });
 
                     try {
-                      if (!provider.isProUser && provider.links.length >= 20) {
+                      if (!provider.isProUser && provider.links.length >= 50) {
                         Navigator.of(context).pop(); // Close dialog
                         _showProFeatureDialog(
                           context,
                           icon: Icons.all_inclusive,
                           color: Colors.blue.shade700,
                           featureName: 'Unlimited Links',
-                          description: 'You\'ve reached the 20-link free limit.\n\nUpgrade to Pro to save unlimited links — no cap, forever!',
+                          description: 'You\'ve reached the 50-link free limit.\n\nUpgrade to Pro to save unlimited links — no cap, forever!',
                           emoji: '🔗',
                         );
                         return;
@@ -1022,7 +954,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ElevatedButton(
             onPressed: () {
               Navigator.of(ctx).pop();
-              Scaffold.of(context).openDrawer();
+              _scaffoldKey.currentState?.openDrawer();
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.blue.shade800,
@@ -1118,7 +1050,7 @@ void _showProFeatureDialog(
                   Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PremiumScreen()));
                 },
                 icon: const Icon(Icons.workspace_premium, size: 18),
-                label: Text('Upgrade to Pro — ₹299', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 14)),
+                label: Text('Upgrade to Pro', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 14)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.amber.shade600,
                   foregroundColor: Colors.white,
@@ -1587,20 +1519,28 @@ class LinkCard extends StatelessWidget {
       builder: (context) {
         return Consumer<LinkProvider>(
           builder: (context, provider, child) {
-            void save() {
-              if (titleController.text.isNotEmpty && urlController.text.isNotEmpty) {
-                final updatedLink = link.copyWith(
-                  title: titleController.text,
-                  url: urlController.text,
-                  categoryId: selectedCategoryId,
-                );
-                Provider.of<LinkProvider>(context, listen: false).updateLink(updatedLink);
-                Navigator.of(context).pop();
-              }
-            }
+            String? urlError;
 
             return StatefulBuilder(
               builder: (context, setDialogState) {
+                void save() {
+                  if (titleController.text.isNotEmpty && urlController.text.isNotEmpty) {
+                    final normalized = UrlValidator.normalize(urlController.text);
+                    if (normalized == null) {
+                      setDialogState(() { urlError = UrlValidator.validationError(); });
+                      return;
+                    }
+                    setDialogState(() { urlError = null; });
+                    final updatedLink = link.copyWith(
+                      title: titleController.text,
+                      url: normalized,
+                      categoryId: selectedCategoryId,
+                    );
+                    Provider.of<LinkProvider>(context, listen: false).updateLink(updatedLink);
+                    Navigator.of(context).pop();
+                  }
+                }
+
                 return AlertDialog(
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                   title: Row(
@@ -1638,10 +1578,12 @@ class LinkCard extends StatelessWidget {
                           onChanged: (val) {
                             setDialogState(() {
                               selectedCategoryId = provider.getAutoCategoryId(val);
+                              urlError = null; // clear error on typing
                             });
                           },
                           decoration: InputDecoration(
                             labelText: 'URL',
+                            errorText: urlError,
                             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                             filled: true,
                             fillColor: Theme.of(context).brightness == Brightness.dark ? Colors.grey.shade800 : Colors.grey.shade100,

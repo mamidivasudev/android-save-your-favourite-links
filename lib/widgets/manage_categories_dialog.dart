@@ -201,7 +201,7 @@ class _ManageCategoriesDialogState extends State<ManageCategoriesDialog> {
                     child: ListView.separated(
                       shrinkWrap: true,
                       itemCount: categories.length,
-                      separatorBuilder: (context, index) => const Divider(height: 1, color: Colors.black12, indent: 20, endIndent: 20),
+                      separatorBuilder: (context, index) => Divider(height: 1, color: Theme.of(context).dividerColor, indent: 20, endIndent: 20),
                       itemBuilder: (context, index) {
                         return _buildListItem(categories[index]);
                       },
@@ -296,7 +296,7 @@ class _ManageCategoriesDialogState extends State<ManageCategoriesDialog> {
           ),
           const SizedBox(width: 12),
           IconButton(
-            icon: const Icon(Icons.close, color: Colors.black, size: 22),
+            icon: Icon(Icons.close, color: Theme.of(context).iconTheme.color, size: 22),
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(),
             onPressed: () {
@@ -311,7 +311,7 @@ class _ManageCategoriesDialogState extends State<ManageCategoriesDialog> {
       case ManageCategoryMode.edit:
         return [
           IconButton(
-            icon: const Icon(Icons.close, color: Colors.black, size: 22),
+            icon: Icon(Icons.close, color: Theme.of(context).iconTheme.color, size: 22),
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(),
             onPressed: () {
@@ -331,7 +331,7 @@ class _ManageCategoriesDialogState extends State<ManageCategoriesDialog> {
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
           child: Text(
             category.name,
-            style: GoogleFonts.poppins(fontSize: 15, color: Colors.black87),
+            style: GoogleFonts.poppins(fontSize: 15),
           ),
         );
 
@@ -369,7 +369,7 @@ class _ManageCategoriesDialogState extends State<ManageCategoriesDialog> {
                 Expanded(
                   child: Text(
                     category.name,
-                    style: GoogleFonts.poppins(fontSize: 15, color: Colors.black87),
+                    style: GoogleFonts.poppins(fontSize: 15),
                   ),
                 ),
               ],
@@ -382,7 +382,7 @@ class _ManageCategoriesDialogState extends State<ManageCategoriesDialog> {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
           child: TextField(
             controller: _editControllers[category.id],
-            style: GoogleFonts.poppins(fontSize: 15, color: Colors.black87),
+            style: GoogleFonts.poppins(fontSize: 15),
             decoration: InputDecoration(
               isDense: true,
               contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),

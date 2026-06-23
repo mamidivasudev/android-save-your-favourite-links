@@ -1,5 +1,5 @@
 name: link_saver
-description: "A new Flutter project."
+description: "LinkVault – Save, organize, and sync your favourite links with categories, biometric lock, and Google Drive backup."
 publish_to: 'none'
 version: 1.0.0+1
 

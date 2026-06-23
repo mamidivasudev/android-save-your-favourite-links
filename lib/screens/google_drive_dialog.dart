@@ -233,6 +233,7 @@ class _GoogleDriveDialogState extends State<GoogleDriveDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       title: Row(
@@ -256,7 +257,7 @@ class _GoogleDriveDialogState extends State<GoogleDriveDialog> {
                     width: double.infinity,
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.blue.shade50,
+                      color: isDark ? Colors.blue.shade900.withValues(alpha: 0.3) : Colors.blue.shade50,
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Column(
@@ -273,7 +274,7 @@ class _GoogleDriveDialogState extends State<GoogleDriveDialog> {
                         const SizedBox(height: 4),
                         Text(
                           'Last sync: ${_formatLastSync(_lastSync)}',
-                          style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey.shade700),
+                          style: GoogleFonts.poppins(fontSize: 12, color: isDark ? Colors.grey.shade400 : Colors.grey.shade700),
                         ),
                       ],
                     ),

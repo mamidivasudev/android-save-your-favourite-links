@@ -1,8 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
     <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
     <uses-permission android:name="android.permission.USE_FINGERPRINT"/>
     <application
@@ -10,11 +7,10 @@
         android:name="${applicationName}"
         android:icon="@mipmap/launcher_icon">
         
-        <!-- ⚠️ TEST ID — Replace with real AdMob App ID before Play Store upload -->
-        <!-- Steps: admob.google.com → Apps → Add App → copy App ID -->
+        <!-- Real AdMob App ID -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="ca-app-pub-3940256099942544~3347511713"/>
+            android:value="ca-app-pub-4244050676400093~3005257653"/>
 
         <activity
             android:name=".MainActivity"

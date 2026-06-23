@@ -8,7 +8,7 @@ class PremiumScreen extends StatelessWidget {
 
   Widget _buildFeatureRow(IconData icon, String title, String description) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -32,6 +32,95 @@ class PremiumScreen extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  void _handlePurchase(BuildContext context, String planName) async {
+    await Provider.of<LinkProvider>(context, listen: false).unlockPro();
+    if (context.mounted) {
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 2), 
+          content: Text('🎉 $planName Unlocked Successfully!', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+          backgroundColor: Colors.green.shade600,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Widget _buildPlanCard({
+    required BuildContext context,
+    required String title,
+    required String price,
+    required String duration,
+    required String description,
+    required bool isPopular,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return GestureDetector(
+      onTap: () => _handlePurchase(context, title),
+      child: Container(
+        width: double.infinity,
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: isDark ? Colors.grey.shade900 : Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isPopular ? Colors.amber.shade600 : (isDark ? Colors.grey.shade800 : Colors.grey.shade300),
+            width: isPopular ? 2 : 1,
+          ),
+          boxShadow: [
+            if (isPopular)
+              BoxShadow(
+                color: Colors.amber.withValues(alpha: 0.15),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              )
+          ],
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(title, style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold)),
+                      if (isPopular) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.amber.shade100,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            'BEST VALUE',
+                            style: GoogleFonts.poppins(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.amber.shade900),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(description, style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey.shade600)),
+                ],
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(price, style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold)),
+                Text(duration, style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey.shade500)),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -62,15 +151,15 @@ class PremiumScreen extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Unlock the full power of your Link Saver. One-time payment, lifetime access.',
+              'Choose the plan that works best for you and unlock the full power of your Link Vault.',
               style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey.shade600),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             _buildFeatureRow(
               Icons.all_inclusive,
               'Unlimited Links',
-              'Break the 20 link limit and save as many links as you want forever.',
+              'Break the 50 link limit and save as many links as you want forever.',
             ),
             _buildFeatureRow(
               Icons.block,
@@ -102,39 +191,34 @@ class PremiumScreen extends StatelessWidget {
               'Lock Individual Links',
               'Lock specific private links so they cannot be opened, edited, or shared without your fingerprint.',
             ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              height: 56,
-              child: ElevatedButton(
-                onPressed: () async {
-                  await Provider.of<LinkProvider>(context, listen: false).unlockPro();
-                  if (context.mounted) {
-                    Navigator.of(context).pop();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(duration: const Duration(seconds: 2), 
-                        content: Text('🎉 Pro Unlocked Successfully!', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-                        backgroundColor: Colors.green.shade600,
-                        behavior: SnackBarBehavior.floating,
-                      ),
-                    );
-                  }
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.amber.shade600,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  elevation: 2,
-                ),
-                child: Text(
-                  'Unlock Lifetime Access for ₹299',
-                  style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-              ),
+            const SizedBox(height: 16),
+            _buildPlanCard(
+              context: context,
+              title: 'Monthly',
+              price: '₹29',
+              duration: '/ month',
+              description: 'Flexible, pay as you go.',
+              isPopular: false,
             ),
-            const SizedBox(height: 12),
+            _buildPlanCard(
+              context: context,
+              title: 'Yearly',
+              price: '₹149',
+              duration: '/ year',
+              description: 'Save 57% annually.',
+              isPopular: false,
+            ),
+            _buildPlanCard(
+              context: context,
+              title: 'Lifetime',
+              price: '₹299',
+              duration: 'one-time',
+              description: 'Pay once, yours forever.',
+              isPopular: true,
+            ),
+            const SizedBox(height: 8),
             Text(
-              'No recurring subscriptions. Pay once, use forever.',
+              'Secure payment via Google Play',
               style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey.shade500),
               textAlign: TextAlign.center,
             ),

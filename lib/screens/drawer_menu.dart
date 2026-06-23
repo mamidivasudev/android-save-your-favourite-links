@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../providers/link_provider.dart';
 import '../providers/theme_provider.dart';
-import 'package:file_picker/file_picker.dart';
 import '../screens/premium_screen.dart';
 import '../services/google_drive_service.dart';
 import '../services/data_service.dart';
@@ -12,12 +12,10 @@ import '../services/auth_service.dart';
 
 class AppDrawer extends StatefulWidget {
   final VoidCallback? onCategoriesTap;
-  final VoidCallback? onStorageFolderTap;
 
   const AppDrawer({
     super.key,
     this.onCategoriesTap,
-    this.onStorageFolderTap,
   });
 
   @override
@@ -117,7 +115,7 @@ class _AppDrawerState extends State<AppDrawer> {
                     Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PremiumScreen()));
                   },
                   icon: const Icon(Icons.workspace_premium, size: 18),
-                  label: Text('Upgrade to Pro — ₹299', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 14)),
+                  label: Text('Upgrade to Pro', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 14)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.amber.shade600,
                     foregroundColor: Colors.white,
@@ -754,68 +752,21 @@ class _AppDrawerState extends State<AppDrawer> {
                     );
                   },
                 ),
+
+                // Privacy Policy
+                const Divider(indent: 24, endIndent: 24, height: 8),
                 _buildBottomTile(
-                  icon: Icons.folder_open_outlined,
-                  iconColor: Colors.orange.shade600,
-                  title: Provider.of<LinkProvider>(context).hasCustomStoragePathSync ? 'Change Storage Folder' : 'Pick Storage Folder',
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    widget.onStorageFolderTap?.call();
+                  icon: Icons.privacy_tip_outlined,
+                  iconColor: Colors.blue.shade400,
+                  title: 'Privacy Policy',
+                  onTap: () async {
+                    final uri = Uri.parse('https://sites.google.com/view/linkvaultprivacypolicy/home');
+                    if (await canLaunchUrl(uri)) {
+                      await launchUrl(uri, mode: LaunchMode.externalApplication);
+                    }
                   },
                 ),
-                if (Provider.of<LinkProvider>(context).hasCustomStoragePathSync)
-                  _buildBottomTile(
-                    icon: Icons.folder_off_outlined,
-                    iconColor: Colors.red.shade400,
-                    title: 'Remove Storage Folder',
-                    titleColor: Colors.red.shade400,
-                    onTap: () async {
-                      Navigator.of(context).pop(); // Close drawer
-                      
-                      final confirmed = await showDialog<bool>(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                          title: Text('Remove Folder?', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-                          content: Text('Are you sure you want to revert to the default internal storage? Your custom folder will no longer be used.', style: GoogleFonts.poppins(fontSize: 14)),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(ctx, false),
-                              child: Text('Cancel', style: GoogleFonts.poppins()),
-                            ),
-                            ElevatedButton(
-                              onPressed: () => Navigator.pop(ctx, true),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.red.shade500,
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              ),
-                              child: Text('Yes, Remove', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
-                            ),
-                          ],
-                        ),
-                      );
 
-                      if (confirmed == true && context.mounted) {
-                        await Provider.of<LinkProvider>(context, listen: false).setStoragePath("");
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Row(children: [
-                                const Icon(Icons.check_circle, color: Colors.white, size: 20),
-                                const SizedBox(width: 8),
-                                Expanded(child: Text('Reverted to default app storage!', style: GoogleFonts.poppins(fontSize: 13))),
-                              ]),
-                              backgroundColor: const Color(0xFF16A34A),
-                              behavior: SnackBarBehavior.floating,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              duration: const Duration(seconds: 2),
-                            ),
-                          );
-                        }
-                      }
-                    },
-                  ),
                 if (_currentUser != null)
                   _buildBottomTile(
                     icon: Icons.logout,
