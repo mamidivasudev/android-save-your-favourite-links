@@ -151,7 +151,7 @@ class PremiumScreen extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Choose the plan that works best for you and unlock the full power of your Link Vault.',
+              'Choose the plan that works best for you and unlock the full power of Rakhna.',
               style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey.shade600),
               textAlign: TextAlign.center,
             ),
@@ -195,7 +195,7 @@ class PremiumScreen extends StatelessWidget {
             _buildPlanCard(
               context: context,
               title: 'Monthly',
-              price: '₹29',
+              price: '₹49',
               duration: '/ month',
               description: 'Flexible, pay as you go.',
               isPopular: false,
@@ -203,9 +203,9 @@ class PremiumScreen extends StatelessWidget {
             _buildPlanCard(
               context: context,
               title: 'Yearly',
-              price: '₹149',
+              price: '₹199',
               duration: '/ year',
-              description: 'Save 57% annually.',
+              description: 'Save 66% annually.',
               isPopular: false,
             ),
             _buildPlanCard(

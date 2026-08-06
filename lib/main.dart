@@ -226,6 +226,13 @@ class _MainWrapperState extends State<MainWrapper> with WidgetsBindingObserver {
       _wasPaused = false;
 
       final provider = Provider.of<LinkProvider>(context, listen: false);
+      
+      // Reload links and categories when the app resumes from the background.
+      // This ensures that if the user shared a link via an intent that ran in a 
+      // separate Android task/process, the main app will fetch the latest data from disk.
+      provider.fetchLinks();
+      provider.fetchCategories();
+
       if (provider.isAuthenticating) return; // Ignore resume if coming back from biometric prompt
       
       final isAppLockEnabled = provider.isAppLockEnabled;
@@ -288,7 +295,7 @@ class _MainWrapperState extends State<MainWrapper> with WidgetsBindingObserver {
             children: [
               const Icon(Icons.lock_outline, size: 80, color: Colors.white),
               const SizedBox(height: 24),
-              Text('Link Vault Locked', style: GoogleFonts.poppins(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
+              Text('Rakhna Locked', style: GoogleFonts.poppins(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
               const SizedBox(height: 48),
               ElevatedButton.icon(
                 icon: const Icon(Icons.fingerprint, size: 28),
@@ -407,6 +414,44 @@ class _SaveLinkDialogState extends State<SaveLinkDialog> {
     }
   }
 
+  void _showAddCategoryDialog(BuildContext context, LinkProvider provider, StateSetter setDialogState) {
+    final catController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('New Category', style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold)),
+        content: TextField(
+          controller: catController,
+          autofocus: true,
+          decoration: InputDecoration(
+            hintText: 'Category Name',
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () async {
+              final name = catController.text.trim();
+              if (name.isNotEmpty) {
+                await provider.addCategory(name);
+                try {
+                  final newCat = provider.categories.firstWhere((c) => c.name.toLowerCase() == name.toLowerCase());
+                  setDialogState(() {
+                    _selectedCategoryId = newCat.id;
+                  });
+                } catch (_) {}
+              }
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _controller.dispose();
@@ -475,43 +520,59 @@ class _SaveLinkDialogState extends State<SaveLinkDialog> {
                       ),
                     ),
                     const SizedBox(height: 20),
-                    Text('Select Category:', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 14)),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Select Category:', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 14)),
+                        InkWell(
+                          onTap: () => _showAddCategoryDialog(context, provider, setDialogState),
+                          borderRadius: BorderRadius.circular(8),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            child: Text('+ New', style: GoogleFonts.poppins(color: Colors.blue.shade700, fontWeight: FontWeight.bold, fontSize: 13)),
+                          ),
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 8),
                     SizedBox(
                       width: double.maxFinite,
                       child: Wrap(
                         spacing: 8,
                         runSpacing: 8,
-                        children: provider.categories.map((cat) {
-                          final isSelected = _selectedCategoryId == cat.id;
-                          return SizedBox(
-                            width: 76,
-                            child: ChoiceChip(
-                              label: Container(
-                                alignment: Alignment.center,
-                                child: Text(
-                                  cat.name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 11),
+                        children: [
+                          ...provider.categories.map((cat) {
+                            final isSelected = _selectedCategoryId == cat.id;
+                            return SizedBox(
+                              width: 76,
+                              child: ChoiceChip(
+                                showCheckmark: false,
+                                label: Container(
+                                  alignment: Alignment.center,
+                                  child: Text(
+                                    cat.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontSize: 11),
+                                  ),
+                                ),
+                                padding: EdgeInsets.zero,
+                                labelPadding: EdgeInsets.zero,
+                                selected: isSelected,
+                                onSelected: (selected) {
+                                  setDialogState(() {
+                                    _selectedCategoryId = selected ? cat.id : null;
+                                  });
+                                },
+                                selectedColor: Colors.blue.shade800,
+                                labelStyle: TextStyle(
+                                  color: isSelected ? Colors.white : (Theme.of(context).brightness == Brightness.dark ? Colors.white : Colors.black),
+                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                                 ),
                               ),
-                              padding: EdgeInsets.zero,
-                              labelPadding: EdgeInsets.zero,
-                              selected: isSelected,
-                              onSelected: (selected) {
-                                setDialogState(() {
-                                  _selectedCategoryId = selected ? cat.id : null;
-                                });
-                              },
-                              selectedColor: Colors.blue.shade800,
-                              labelStyle: TextStyle(
-                                color: isSelected ? Colors.white : (Theme.of(context).brightness == Brightness.dark ? Colors.white : Colors.black),
-                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                              ),
-                            ),
-                          );
-                        }).toList(),
+                            );
+                          }).toList(),
+                        ],
                       ),
                     ),
                   ],
